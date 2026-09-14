@@ -5,8 +5,10 @@ import pytest
 
 from nhl_draft_lab.evaluation import (
     active_universe_projections,
+    blend_grid_metrics,
     build_v1_comparison,
     coverage_summary,
+    draft_zone_disagreements,
     draft_zone_metrics,
     projection_metrics,
     skater_component_errors,
@@ -182,3 +184,39 @@ def test_defense_focus_windows_are_reported_separately():
     top9 = metrics.loc[metrics["segment"].eq("D_TOP_9")].iloc[0]
     assert top6["segment_assets"] == 6
     assert top9["segment_assets"] == 9
+
+
+def test_blend_grid_keeps_v0_endpoint_and_marks_best_in_sample_weight():
+    comparison = build_v1_comparison(v0_master(), v1_projections())
+    grid = blend_grid_metrics(
+        comparison,
+        draft_counts={"F": 2, "G": 1, "T": 1},
+        weights=(0.0, 0.5, 1.0),
+    )
+    overall = grid.loc[
+        grid["segment"].eq("DRAFTABLE") & grid["category"].eq("ALL")
+    ].set_index("v1_weight")
+
+    assert overall.loc[0.0, "mae"] == pytest.approx(20 / 3)
+    assert overall.loc[1.0, "mae"] == pytest.approx(4)
+    assert overall.loc[1.0, "is_best_mae_in_sample"]
+
+
+def test_blend_weights_must_be_convex():
+    comparison = build_v1_comparison(v0_master(), v1_projections())
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        blend_grid_metrics(comparison, {"F": 2}, weights=(-0.1, 0.5))
+
+
+def test_disagreement_detail_stays_inside_draft_zone():
+    comparison = build_v1_comparison(v0_master(), v1_projections())
+    detail = draft_zone_disagreements(
+        comparison,
+        draft_counts={"F": 1, "G": 1, "T": 1},
+    )
+
+    assert len(detail) == 3
+    assert set(detail["display_name"]) == {"Veteran", "Goalie", "Team"}
+    assert detail.iloc[0]["absolute_v1_v0_disagreement"] >= detail.iloc[-1][
+        "absolute_v1_v0_disagreement"
+    ]

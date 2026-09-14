@@ -209,18 +209,11 @@ def _model_comparison_rows(frame: pd.DataFrame, category: str) -> list[dict[str,
     ]
 
 
-def draft_zone_metrics(
+def _draft_segments(
     comparison: pd.DataFrame,
     draft_counts: dict[str, int],
-    defense_focus_ranks: tuple[int, ...] = (6, 9),
-) -> pd.DataFrame:
-    """Evaluate only decision-relevant ranks, based on pre-season V0 order.
-
-    Ranking on V0 rather than actual outcomes prevents target leakage.  The
-    defense focus windows keep elite-defense performance visible instead of
-    diluting it across every historical defenseman.
-    """
-
+    defense_focus_ranks: tuple[int, ...],
+) -> tuple[pd.DataFrame, list[tuple[str, str, int, pd.DataFrame]]]:
     ranked = comparison.copy()
     ranked["v0_category_rank"] = ranked.groupby("category")[
         "v0_projected_points"
@@ -241,6 +234,22 @@ def draft_zone_metrics(
             ranked["category"].eq("D") & ranked["v0_category_rank"].le(count)
         ].copy()
         segments.append((f"D_TOP_{count}", "D", int(count), part))
+    return ranked, segments
+
+
+def draft_zone_metrics(
+    comparison: pd.DataFrame,
+    draft_counts: dict[str, int],
+    defense_focus_ranks: tuple[int, ...] = (6, 9),
+) -> pd.DataFrame:
+    """Evaluate only decision-relevant ranks, based on pre-season V0 order.
+
+    Ranking on V0 rather than actual outcomes prevents target leakage.  The
+    defense focus windows keep elite-defense performance visible instead of
+    diluting it across every historical defenseman.
+    """
+
+    _, segments = _draft_segments(comparison, draft_counts, defense_focus_ranks)
 
     rows: list[dict[str, object]] = []
     for segment, category, rank_cutoff, part in segments:
@@ -268,6 +277,106 @@ def draft_zone_metrics(
         "model", "n",
     ]
     return metrics[[*first, *[column for column in metrics if column not in first]]]
+
+
+def blend_grid_metrics(
+    comparison: pd.DataFrame,
+    draft_counts: dict[str, int],
+    weights: tuple[float, ...] = tuple(step / 10 for step in range(11)),
+    defense_focus_ranks: tuple[int, ...] = (6, 9),
+) -> pd.DataFrame:
+    """Evaluate convex V0/V1 blends on identical, draft-relevant coverage."""
+
+    if not weights:
+        raise ValueError("blend weights cannot be empty")
+    if any(weight < 0 or weight > 1 for weight in weights):
+        raise ValueError("blend weights must be between 0 and 1")
+    _, segments = _draft_segments(comparison, draft_counts, defense_focus_ranks)
+
+    rows: list[dict[str, object]] = []
+    for segment, category, rank_cutoff, part in segments:
+        covered = part.loc[part["v1_available"]].copy()
+        for weight in sorted(set(float(value) for value in weights)):
+            blended = covered.copy()
+            blended["_blend_points"] = (
+                (1.0 - weight) * blended["v0_projected_points"]
+                + weight * blended["v1_projected_points"]
+            )
+            row = _metrics(blended, "V0_V1_BLEND", "_blend_points", "ALL")
+            row.update({
+                "segment": segment,
+                "category": category,
+                "rank_cutoff": rank_cutoff,
+                "v1_weight": weight,
+                "v0_weight": 1.0 - weight,
+            })
+            rows.append(row)
+
+    metrics = pd.DataFrame(rows)
+    baseline = metrics.loc[
+        metrics["v1_weight"].eq(0), ["segment", "category", "mae", "rmse", "spearman"]
+    ].rename(columns={
+        "mae": "v0_mae",
+        "rmse": "v0_rmse",
+        "spearman": "v0_spearman",
+    })
+    metrics = metrics.merge(baseline, on=["segment", "category"], how="left")
+    metrics["mae_delta_vs_v0"] = metrics["mae"] - metrics["v0_mae"]
+    metrics["spearman_delta_vs_v0"] = metrics["spearman"] - metrics["v0_spearman"]
+    best_mae = metrics.groupby(["segment", "category"])["mae"].transform("min")
+    metrics["is_best_mae_in_sample"] = (metrics["mae"] - best_mae).abs() < 1e-12
+    first = [
+        "segment", "category", "rank_cutoff", "v1_weight", "v0_weight",
+        "model", "n",
+    ]
+    return metrics[[*first, *[column for column in metrics if column not in first]]]
+
+
+def draft_zone_disagreements(
+    comparison: pd.DataFrame,
+    draft_counts: dict[str, int],
+    defense_focus_ranks: tuple[int, ...] = (6, 9),
+) -> pd.DataFrame:
+    """Show which draft-relevant assets drive disagreement between V0 and V1."""
+
+    ranked, _ = _draft_segments(comparison, draft_counts, defense_focus_ranks)
+    cutoff = ranked["category"].map(draft_counts)
+    detail = ranked.loc[
+        cutoff.notna()
+        & ranked["v0_category_rank"].le(cutoff)
+        & ranked["v1_available"]
+    ].copy()
+    detail["v1_minus_v0"] = detail["v1_projected_points"] - detail["v0_projected_points"]
+    detail["absolute_v1_v0_disagreement"] = detail["v1_minus_v0"].abs()
+    detail["v0_absolute_error"] = (
+        detail["actual_points"] - detail["v0_projected_points"]
+    ).abs()
+    detail["v1_absolute_error"] = (
+        detail["actual_points"] - detail["v1_projected_points"]
+    ).abs()
+    detail["closer_model"] = "TIE"
+    detail.loc[detail["v0_absolute_error"] < detail["v1_absolute_error"], "closer_model"] = "V0"
+    detail.loc[detail["v1_absolute_error"] < detail["v0_absolute_error"], "closer_model"] = "V1"
+
+    names = detail.get("FullName", pd.Series(index=detail.index, dtype=object)).copy()
+    if "Team" in detail:
+        names = names.fillna(detail["Team"])
+    detail["display_name"] = names.fillna(detail.get("v1_name"))
+    detail["defense_focus"] = ""
+    for count in sorted(set(defense_focus_ranks), reverse=True):
+        mask = detail["category"].eq("D") & detail["v0_category_rank"].le(count)
+        detail.loc[mask, "defense_focus"] = f"D_TOP_{count}"
+
+    preferred = [
+        "category", "v0_category_rank", "defense_focus", "display_name", "join_key",
+        "actual_points", "v0_projected_points", "v1_projected_points",
+        "v1_minus_v0", "absolute_v1_v0_disagreement", "v0_absolute_error",
+        "v1_absolute_error", "closer_model", "v1_projected_ppg", "v1_projected_gp",
+    ]
+    columns = [column for column in preferred if column in detail]
+    return detail[columns].sort_values(
+        ["absolute_v1_v0_disagreement", "category"], ascending=[False, True]
+    ).reset_index(drop=True)
 
 
 def skater_component_errors(comparison: pd.DataFrame) -> pd.DataFrame:

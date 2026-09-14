@@ -109,3 +109,13 @@ nhl-draft evaluate-v1 \
   --draft-counts F=200,D=75,G=45,T=25 \
   --defense-focus-ranks 6 9
 ```
+
+`07_v1_blend_grid.csv` evaluates the convex blend
+`V0 + w × (V1 - V0)` from 0% to 100% V1 by default. Results are reported for
+each draft-relevant category and the D top-6/top-9 windows. The lowest-MAE
+weight is marked as `is_best_mae_in_sample`; this is an exploratory diagnostic,
+not a production coefficient selected from one backtest season.
+
+`08_v1_draft_zone_disagreements.csv` lists every covered asset in the broad
+draft zone, ordered by the absolute difference between V0 and V1. It includes
+the realised result and identifies which baseline was closer.

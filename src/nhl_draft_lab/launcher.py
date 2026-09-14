@@ -21,8 +21,10 @@ from nhl_draft_lab.data.repository import available_seasons, load_assets, load_h
 from nhl_draft_lab.draft.engine import replacement_levels, run_draft
 from nhl_draft_lab.evaluation import (
     active_universe_projections,
+    blend_grid_metrics,
     build_v1_comparison,
     coverage_summary,
+    draft_zone_disagreements,
     draft_zone_metrics,
     projection_metrics,
     skater_component_errors,
@@ -137,6 +139,17 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         draft_counts=draft_counts,
         defense_focus_ranks=tuple(args.defense_focus_ranks),
     )
+    blend_metrics = blend_grid_metrics(
+        comparison,
+        draft_counts=draft_counts,
+        weights=tuple(args.blend_weights),
+        defense_focus_ranks=tuple(args.defense_focus_ranks),
+    )
+    disagreements = draft_zone_disagreements(
+        comparison,
+        draft_counts=draft_counts,
+        defense_focus_ranks=tuple(args.defense_focus_ranks),
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(args.output_dir / "01_v1_universe_comparison.csv", index=False)
@@ -145,6 +158,8 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     skater_components.to_csv(args.output_dir / "04_v1_skater_component_errors.csv", index=False)
     active_projections.to_csv(args.output_dir / "05_v1_active_universe_projections.csv", index=False)
     relevant_metrics.to_csv(args.output_dir / "06_v1_draft_zone_metrics.csv", index=False)
+    blend_metrics.to_csv(args.output_dir / "07_v1_blend_grid.csv", index=False)
+    disagreements.to_csv(args.output_dir / "08_v1_draft_zone_disagreements.csv", index=False)
 
     print("Stage 2 — V1.0 evaluation against frozen V0")
     print("\nCoverage")
@@ -161,6 +176,15 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         ["segment", "category", "rank_cutoff", "model", "n", "mae", "rmse", "spearman"],
     ]
     print(relevant_display.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nExploratory blend weights with lowest in-sample MAE")
+    best_blends = blend_metrics.loc[
+        blend_metrics["is_best_mae_in_sample"],
+        [
+            "segment", "category", "rank_cutoff", "n", "v1_weight", "mae",
+            "mae_delta_vs_v0", "spearman", "spearman_delta_vs_v0",
+        ],
+    ]
+    print(best_blends.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(f"\nEvaluation -> {args.output_dir}")
 
 
@@ -545,6 +569,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[6, 9],
         help="Elite-defense rank windows reported separately (default: 6 9)",
+    )
+    evaluate_v1.add_argument(
+        "--blend-weights",
+        type=float,
+        nargs="+",
+        default=[step / 10 for step in range(11)],
+        help="Exploratory V1 weights mixed with V0 (default: 0.0 through 1.0)",
     )
     evaluate_v1.set_defaults(func=cmd_evaluate_v1)
 

@@ -119,6 +119,10 @@ focuses on a broad draft-relevant zone (F200, D75, G45, T25) and reports the top
 6 and top 9 defensemen separately. Override `--draft-counts` or
 `--defense-focus-ranks` when the analysis scope changes.
 
+The same command exports an exploratory V0/V1 blend grid and a player-level
+disagreement table. Blend-grid winners are explicitly labelled in-sample and
+must not be treated as calibrated production weights from a single season.
+
 You can explicitly test other opponent models as well:
 
 ```bash
