@@ -6,6 +6,11 @@ import unicodedata
 import pandas as pd
 
 
+TEAM_ABBREVIATION_ALIASES = {
+    "ARI": "UTA",
+}
+
+
 def _identifier(value: object) -> str:
     numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
     if not pd.isna(numeric) and float(numeric).is_integer():
@@ -49,6 +54,7 @@ def _team_name_map(v0_master: pd.DataFrame) -> dict[str, str]:
 def _v1_key(row: pd.Series, team_names: dict[str, str]) -> str:
     if str(row["category"]).upper() == "T":
         abbreviation = _team(row.get("nhl_team"))
+        abbreviation = TEAM_ABBREVIATION_ALIASES.get(abbreviation, abbreviation)
         name = _team(row.get("name"))
         resolved = abbreviation or team_names.get(name)
         return f"T:{resolved}" if resolved else f"TNAME:{name}"

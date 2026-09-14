@@ -111,3 +111,18 @@ def test_active_universe_output_uses_existing_projection_contract():
     rookie = active.loc[active["entity_id"] == "P:2"].iloc[0]
     assert rookie["projection_source"] == "V0_FALLBACK"
     assert rookie["projected_points"] == 40
+
+
+def test_legacy_arizona_abbreviation_matches_utah():
+    master = v0_master().copy()
+    master.loc[master["category"] == "T", "team_key"] = "UTA"
+    master.loc[master["category"] == "T", "Team"] = "Utah Mammoth"
+    projections = v1_projections().copy()
+    projections.loc[projections["category"] == "T", "nhl_team"] = "ARI"
+    projections.loc[projections["category"] == "T", "name"] = "Utah Hockey Club"
+
+    comparison = build_v1_comparison(master, projections)
+    utah = comparison.loc[comparison["category"] == "T"].iloc[0]
+
+    assert utah["v1_available"]
+    assert utah["v1_projected_points"] == 88
