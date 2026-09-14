@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 
 import pandas as pd
 
@@ -13,7 +14,10 @@ def _identifier(value: object) -> str:
 
 
 def _team(value: object) -> str:
-    return "" if pd.isna(value) else str(value).strip().upper().rstrip("*")
+    if pd.isna(value):
+        return ""
+    text = unicodedata.normalize("NFKD", str(value).strip())
+    return "".join(char for char in text if not unicodedata.combining(char)).upper().rstrip("*")
 
 
 def _require(frame: pd.DataFrame, columns: set[str], label: str) -> None:
@@ -28,9 +32,26 @@ def _v0_key(row: pd.Series) -> str:
     return f"P:{_identifier(row.get('NHLID'))}"
 
 
-def _v1_key(row: pd.Series) -> str:
+def _team_name_map(v0_master: pd.DataFrame) -> dict[str, str]:
+    aliases = {"UTAH HOCKEY CLUB": "UTA", "UTAH MAMMOTH": "UTA"}
+    teams = v0_master.loc[v0_master["category"] == "T"]
+    for _, row in teams.iterrows():
+        abbreviation = _team(row.get("team_key"))
+        if not abbreviation:
+            continue
+        for column in ("Team", "FullName", "actual_name"):
+            name = _team(row.get(column))
+            if name:
+                aliases[name] = abbreviation
+    return aliases
+
+
+def _v1_key(row: pd.Series, team_names: dict[str, str]) -> str:
     if str(row["category"]).upper() == "T":
-        return f"T:{_team(row.get('nhl_team'))}"
+        abbreviation = _team(row.get("nhl_team"))
+        name = _team(row.get("name"))
+        resolved = abbreviation or team_names.get(name)
+        return f"T:{resolved}" if resolved else f"TNAME:{name}"
     return f"P:{_identifier(row.get('entity_id'))}"
 
 
@@ -44,7 +65,7 @@ def build_v1_comparison(v0_master: pd.DataFrame, v1: pd.DataFrame) -> pd.DataFra
     )
     _require(
         v1,
-        {"entity_id", "category", "nhl_team", "projected_points"},
+        {"entity_id", "name", "category", "nhl_team", "projected_points"},
         "V1 projections",
     )
 
@@ -56,7 +77,8 @@ def build_v1_comparison(v0_master: pd.DataFrame, v1: pd.DataFrame) -> pd.DataFra
 
     right = v1.copy()
     right["category"] = right["category"].astype(str).str.upper()
-    right["join_key"] = right.apply(_v1_key, axis=1)
+    team_names = _team_name_map(left)
+    right["join_key"] = right.apply(lambda row: _v1_key(row, team_names), axis=1)
     if right["join_key"].duplicated().any():
         duplicates = sorted(right.loc[right["join_key"].duplicated(), "join_key"].unique())
         raise ValueError(f"V1 projections contain duplicate keys: {duplicates[:10]}")

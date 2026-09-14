@@ -50,7 +50,9 @@ def v1_projections() -> pd.DataFrame:
             "projected_starts": 42, "projected_start_share": 42 / 82,
         },
         {
-            "entity_id": "30", "category": "T", "nhl_team": "DDD",
+            # Older ranking databases can have no team abbreviation.  The
+            # evaluator must recover it from V0's team name mapping.
+            "entity_id": "30", "category": "T", "nhl_team": "",
             "name": "Team", "projected_points": 88,
         },
         {
