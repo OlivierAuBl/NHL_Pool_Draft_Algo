@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+
+# Generated analyses
+output/
+
+# SQLite / local data
+*.sqlite
+*.sqlite3
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db

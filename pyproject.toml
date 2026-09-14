@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nhl-draft-lab"
+version = "0.1.0"
+description = "Perfect-information backtest lab for NHL snake-draft strategies"
+requires-python = ">=3.12"
+dependencies = [
+  "pandas>=2.1",
+  "requests>=2.31",
+  "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+nhl-draft = "nhl_draft_lab.launcher:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
