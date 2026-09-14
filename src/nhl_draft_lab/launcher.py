@@ -17,8 +17,9 @@ from nhl_draft_lab.data.nhl_api import (
     fetch_season,
     last_completed_season_ids,
 )
-from nhl_draft_lab.data.repository import available_seasons, load_assets, write_rankings
+from nhl_draft_lab.data.repository import available_seasons, load_assets, load_history, write_rankings
 from nhl_draft_lab.draft.engine import replacement_levels, run_draft
+from nhl_draft_lab.forecasting import ForecastConfig, project_v1
 from nhl_draft_lab.models import RosterConfig
 from nhl_draft_lab.pressure import PressureConfig, build_tier_pressure_book
 from nhl_draft_lab.strategies.factory import STRATEGY_NAMES, build_strategy
@@ -90,6 +91,24 @@ def cmd_fetch(args: argparse.Namespace) -> None:
             path = args.excel_dir / f"nhl_rankings_{season}.xlsx"
             export_excel(rankings, season, path)
             print(f"  Excel -> {path}")
+
+
+def cmd_project_v1(args: argparse.Namespace) -> None:
+    history = load_history(args.db, args.history_seasons)
+    manual_context = pd.read_csv(args.manual_context) if args.manual_context else None
+    config = ForecastConfig(
+        season_games=args.season_games,
+        recency_weights=tuple(args.recency_weights),
+    )
+    projections = project_v1(history, manual_context=manual_context, config=config)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    projections.to_csv(args.output, index=False)
+
+    print("Stage 2 — V1.0 component projections")
+    print(f"History seasons: {', '.join(str(x) for x in sorted(history['season_id'].unique()))}")
+    print(f"Rows: {len(projections)}")
+    print(projections.groupby("category").size().rename("assets").to_string())
+    print(f"\nProjections -> {args.output}")
 
 
 def cmd_draft(args: argparse.Namespace) -> None:
@@ -413,6 +432,33 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--seasons", type=int, nargs="*")
     fetch.add_argument("--excel-dir", type=Path)
     fetch.set_defaults(func=cmd_fetch)
+
+    project_v1_parser = sub.add_parser(
+        "project-v1",
+        help="Build transparent PPG/GP and goalie-component projections",
+    )
+    project_v1_parser.add_argument("--db", type=Path, default=Path("data/nhl_history.sqlite"))
+    project_v1_parser.add_argument(
+        "--history-seasons",
+        type=int,
+        nargs="*",
+        help="Optional subset of seasons; default uses every season in the database",
+    )
+    project_v1_parser.add_argument("--manual-context", type=Path)
+    project_v1_parser.add_argument("--season-games", type=int, default=82)
+    project_v1_parser.add_argument(
+        "--recency-weights",
+        type=float,
+        nargs="+",
+        default=[0.60, 0.30, 0.10],
+        help="Weights from most recent to oldest season",
+    )
+    project_v1_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("output/v1/projections.csv"),
+    )
+    project_v1_parser.set_defaults(func=cmd_project_v1)
 
     draft = sub.add_parser("draft", help="Run one omniscient historical snake draft")
     _add_default_pool_args(draft)
