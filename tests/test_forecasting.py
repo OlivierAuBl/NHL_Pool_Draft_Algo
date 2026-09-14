@@ -116,6 +116,33 @@ def test_manual_context_can_match_a_player_by_name_for_auditable_notes():
     assert skater["injury_note"] == "Known injury context"
 
 
+def test_name_context_ignores_unrelated_duplicate_projection_names():
+    history = pd.concat([
+        history_frame(),
+        pd.DataFrame([
+            {
+                "season_id": 20242025, "category": "F", "entity_id": "f2",
+                "name": "Shared Name", "nhl_team": "DDD", "games_played": 20,
+                "goals": 2, "assists": 3,
+            },
+            {
+                "season_id": 20242025, "category": "D", "entity_id": "d2",
+                "name": "Shared Name", "nhl_team": "EEE", "games_played": 20,
+                "goals": 1, "assists": 4,
+            },
+        ]),
+    ], ignore_index=True)
+    manual = pd.DataFrame([{
+        "name": "Forward One",
+        "pp_role_note": "Moved from QB2 to QB1",
+    }])
+
+    result = project_v1(history, manual_context=manual)
+
+    skater = result.loc[result["entity_id"] == "f1"].iloc[0]
+    assert skater["pp_role_note"] == "Moved from QB2 to QB1"
+
+
 def test_goalie_falls_back_to_games_played_when_starts_are_unavailable():
     history = history_frame().drop(columns="games_started")
     result = project_v1(history)

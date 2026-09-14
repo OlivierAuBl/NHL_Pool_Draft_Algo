@@ -269,7 +269,14 @@ def _apply_manual_context(projections: pd.DataFrame, manual: pd.DataFrame, confi
         if requested.isin(set(ambiguous)).any():
             names = sorted(context.loc[unresolved & requested.isin(set(ambiguous)), "name"].astype(str))
             raise ValueError(f"Manual context names are ambiguous: {names}")
-        name_to_id = projection_names.set_index("_name_key")["entity_id"]
+        # Series.map requires a globally unique index. Ignore unrelated
+        # duplicate names here; a requested duplicate was rejected above.
+        name_to_id = (
+            projection_names.loc[
+                ~projection_names["_name_key"].duplicated(keep=False)
+            ]
+            .set_index("_name_key")["entity_id"]
+        )
         resolved = requested.map(name_to_id)
         if resolved.isna().any():
             names = sorted(context.loc[resolved.index[resolved.isna()], "name"].astype(str))
