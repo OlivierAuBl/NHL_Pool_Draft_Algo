@@ -102,6 +102,20 @@ def test_manual_context_can_override_injury_and_future_role():
     assert goalie["projected_win_rate"] == pytest.approx(0.55)
 
 
+def test_manual_context_can_match_a_player_by_name_for_auditable_notes():
+    manual = pd.DataFrame([{
+        "name": "Forward One",
+        "pp_role_note": "Moved from QB2 to QB1",
+        "injury_note": "Known injury context",
+    }])
+
+    result = project_v1(history_frame(), manual_context=manual)
+    skater = result.loc[result["entity_id"] == "f1"].iloc[0]
+
+    assert skater["pp_role_note"] == "Moved from QB2 to QB1"
+    assert skater["injury_note"] == "Known injury context"
+
+
 def test_goalie_falls_back_to_games_played_when_starts_are_unavailable():
     history = history_frame().drop(columns="games_started")
     result = project_v1(history)

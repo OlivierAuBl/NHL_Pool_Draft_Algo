@@ -21,11 +21,13 @@ from nhl_draft_lab.data.repository import available_seasons, load_assets, load_h
 from nhl_draft_lab.draft.engine import replacement_levels, run_draft
 from nhl_draft_lab.evaluation import (
     active_universe_projections,
+    add_v0_ppg_v1_gp_hybrid,
     blend_grid_metrics,
     build_v1_comparison,
     coverage_summary,
     draft_zone_disagreements,
     draft_zone_metrics,
+    hybrid_active_universe_projections,
     projection_metrics,
     skater_component_errors,
 )
@@ -125,10 +127,16 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     v0_master = pd.read_csv(args.v0_master)
     v1 = pd.read_csv(args.v1)
     comparison = build_v1_comparison(v0_master, v1)
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        comparison,
+        v0_reference_games=args.v0_reference_games,
+        rookie_gp=args.rookie_gp,
+    )
     coverage = coverage_summary(comparison)
     metrics = projection_metrics(comparison)
     skater_components = skater_component_errors(comparison)
     active_projections = active_universe_projections(comparison)
+    hybrid_projections = hybrid_active_universe_projections(comparison)
     draft_counts = {
         category: args.draft_counts.required(category)
         for category in args.draft_counts.counts
@@ -160,6 +168,9 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     relevant_metrics.to_csv(args.output_dir / "06_v1_draft_zone_metrics.csv", index=False)
     blend_metrics.to_csv(args.output_dir / "07_v1_blend_grid.csv", index=False)
     disagreements.to_csv(args.output_dir / "08_v1_draft_zone_disagreements.csv", index=False)
+    hybrid_projections.to_csv(
+        args.output_dir / "09_v0_ppg_v1_gp_projections.csv", index=False
+    )
 
     print("Stage 2 — V1.0 evaluation against frozen V0")
     print("\nCoverage")
@@ -167,12 +178,16 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     print("\nOverall metrics")
     overall = metrics.loc[metrics["category"] == "ALL", [
         "model", "n", "mae", "rmse", "bias_actual_minus_projection",
-        "pearson", "spearman", "mae_delta_vs_v0_same_coverage",
+        "pearson", "spearman", "mae_delta_vs_v0_full_universe",
     ]]
     print(overall.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print("\nDraft-relevant metrics")
     relevant_display = relevant_metrics.loc[
-        relevant_metrics["model"].isin({"V0_same_V1_coverage", "V1_history_components"}),
+        relevant_metrics["model"].isin({
+            "V0_same_V1_coverage",
+            "V1_history_components",
+            "V0_PPG_x_V1_GP_with_rookie_default",
+        }),
         ["segment", "category", "rank_cutoff", "model", "n", "mae", "rmse", "spearman"],
     ]
     print(relevant_display.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
@@ -185,6 +200,10 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         ],
     ]
     print(best_blends.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print(
+        f"\nHybrid assumptions: V0 points / {args.v0_reference_games:g} games; "
+        f"rookie/no-history skaters = {args.rookie_gp:g} GP"
+    )
     print(f"\nEvaluation -> {args.output_dir}")
 
 
@@ -576,6 +595,18 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[step / 10 for step in range(11)],
         help="Exploratory V1 weights mixed with V0 (default: 0.0 through 1.0)",
+    )
+    evaluate_v1.add_argument(
+        "--v0-reference-games",
+        type=float,
+        default=84.0,
+        help="Reference schedule used to convert V0 skater points to PPG (default: 84)",
+    )
+    evaluate_v1.add_argument(
+        "--rookie-gp",
+        type=float,
+        default=50.0,
+        help="GP assumption for skaters without V1 history (default: 50)",
     )
     evaluate_v1.set_defaults(func=cmd_evaluate_v1)
 

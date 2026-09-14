@@ -5,11 +5,13 @@ import pytest
 
 from nhl_draft_lab.evaluation import (
     active_universe_projections,
+    add_v0_ppg_v1_gp_hybrid,
     blend_grid_metrics,
     build_v1_comparison,
     coverage_summary,
     draft_zone_disagreements,
     draft_zone_metrics,
+    hybrid_active_universe_projections,
     projection_metrics,
     skater_component_errors,
 )
@@ -85,6 +87,44 @@ def test_metrics_compare_v0_and_v1_on_identical_coverage():
     assert overall.loc["V1_history_components", "mae"] == pytest.approx(4)
     assert overall.loc["V1_with_V0_fallback_full_universe", "mae"] == pytest.approx(5.5)
     assert overall.loc["V0_full_universe", "mae"] == pytest.approx(7.5)
+
+
+def test_hybrid_uses_v0_rate_v1_gp_and_rookie_gp_default():
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        build_v1_comparison(v0_master(), v1_projections()),
+        v0_reference_games=84,
+        rookie_gp=50,
+    )
+
+    veteran = comparison.loc[comparison["NHLID"] == 1].iloc[0]
+    rookie = comparison.loc[comparison["NHLID"] == 2].iloc[0]
+    goalie = comparison.loc[comparison["NHLID"] == 3].iloc[0]
+    assert veteran["hybrid_projected_points"] == pytest.approx(90 / 84 * 80)
+    assert veteran["hybrid_gp_source"] == "V1_HISTORY"
+    assert rookie["hybrid_projected_points"] == pytest.approx(40 / 84 * 50)
+    assert rookie["hybrid_gp_source"] == "ROOKIE_DEFAULT"
+    assert goalie["hybrid_projected_points"] == 60
+
+
+def test_hybrid_is_exported_in_projection_loader_contract():
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        build_v1_comparison(v0_master(), v1_projections())
+    )
+    hybrid = hybrid_active_universe_projections(comparison)
+
+    assert len(hybrid) == 4
+    assert {"entity_id", "name", "category", "projected_points", "stddev_points"} <= set(hybrid)
+    assert set(hybrid["projection_source"]) == {"V0_PPG_X_V1_GP"}
+
+
+def test_hybrid_assumptions_must_be_valid():
+    comparison = build_v1_comparison(v0_master(), v1_projections())
+    with pytest.raises(ValueError, match="v0_reference_games must be positive"):
+        add_v0_ppg_v1_gp_hybrid(comparison, v0_reference_games=0)
+    with pytest.raises(ValueError, match="rookie_gp cannot be negative"):
+        add_v0_ppg_v1_gp_hybrid(comparison, rookie_gp=-1)
+    with pytest.raises(ValueError, match="rookie_gp cannot exceed"):
+        add_v0_ppg_v1_gp_hybrid(comparison, v0_reference_games=84, rookie_gp=85)
 
 
 def test_component_output_separates_skater_gp_and_ppg_errors():

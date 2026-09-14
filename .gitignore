@@ -16,6 +16,7 @@ output/
 *.sqlite
 *.sqlite3
 *.csv
+!data/v1_manual_context.csv
 
 # OS
 .DS_Store

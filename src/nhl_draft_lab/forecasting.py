@@ -83,6 +83,10 @@ def _entity_id(value: object) -> str:
     return str(value).strip()
 
 
+def _name_key(value: object) -> str:
+    return "" if pd.isna(value) else str(value).strip().casefold()
+
+
 def _identity(group: pd.DataFrame) -> dict[str, object]:
     latest = group.sort_values("season_id", ascending=False).iloc[0]
     return {
@@ -243,10 +247,35 @@ def _validate_history(history: pd.DataFrame) -> pd.DataFrame:
 
 
 def _apply_manual_context(projections: pd.DataFrame, manual: pd.DataFrame, config: ForecastConfig) -> pd.DataFrame:
-    if "entity_id" not in manual:
-        raise ValueError("Manual context must contain entity_id")
+    if "entity_id" not in manual and "name" not in manual:
+        raise ValueError("Manual context must contain entity_id or name")
     context = manual.copy()
-    context["entity_id"] = context["entity_id"].map(_entity_id)
+    if "entity_id" not in context:
+        context["entity_id"] = pd.NA
+
+    raw_ids = context["entity_id"]
+    has_id = raw_ids.notna() & raw_ids.astype(str).str.strip().ne("")
+    context.loc[has_id, "entity_id"] = raw_ids.loc[has_id].map(_entity_id)
+
+    unresolved = ~has_id
+    if unresolved.any():
+        if "name" not in context:
+            raise ValueError("Manual context rows without entity_id must contain name")
+        projection_names = projections.assign(_name_key=projections["name"].map(_name_key))
+        ambiguous = projection_names.loc[
+            projection_names["_name_key"].duplicated(keep=False), "_name_key"
+        ]
+        requested = context.loc[unresolved, "name"].map(_name_key)
+        if requested.isin(set(ambiguous)).any():
+            names = sorted(context.loc[unresolved & requested.isin(set(ambiguous)), "name"].astype(str))
+            raise ValueError(f"Manual context names are ambiguous: {names}")
+        name_to_id = projection_names.set_index("_name_key")["entity_id"]
+        resolved = requested.map(name_to_id)
+        if resolved.isna().any():
+            names = sorted(context.loc[resolved.index[resolved.isna()], "name"].astype(str))
+            raise ValueError(f"Manual context contains unknown names: {names}")
+        context.loc[unresolved, "entity_id"] = resolved.map(_entity_id)
+
     if context["entity_id"].duplicated().any():
         duplicated = sorted(context.loc[context["entity_id"].duplicated(), "entity_id"].unique())
         raise ValueError(f"Manual context contains duplicate entity_id values: {duplicated}")

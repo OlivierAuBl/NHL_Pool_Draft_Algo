@@ -112,6 +112,12 @@ nhl-draft evaluate-v1 `
   --output-dir output/v1/evaluation
 ```
 
+The evaluation also treats V0 skater points as an implied PPG over 84 reference
+games, then multiplies that rate by V1 projected GP. Skaters without history
+default to 50 GP. Override these assumptions with `--v0-reference-games` and
+`--rookie-gp`; the resulting draft input is
+`09_v0_ppg_v1_gp_projections.csv`.
+
 This reports V0 and V1 on identical historical coverage, then constructs a complete active universe using V0 only as a fallback for players without NHL history. The resulting `05_v1_active_universe_projections.csv` follows the existing projection-loader contract.
 
 The evaluation also writes `06_v1_draft_zone_metrics.csv`. By default, it

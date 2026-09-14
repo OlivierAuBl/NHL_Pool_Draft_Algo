@@ -33,6 +33,10 @@ Team assets use recency-weighted win and OTL rates. The joint team–goalie feed
 
 Only `entity_id` is required. One row per entity is allowed.
 
+For hand-maintained context, `name` may be used instead of `entity_id` when it
+matches exactly one projected asset. This keeps notes usable before NHL IDs
+have been looked up.
+
 Context columns such as these are copied to the output without changing the projection:
 
 - `projected_line`
@@ -119,3 +123,18 @@ not a production coefficient selected from one backtest season.
 `08_v1_draft_zone_disagreements.csv` lists every covered asset in the broad
 draft zone, ordered by the absolute difference between V0 and V1. It includes
 the realised result and identifies which baseline was closer.
+
+## V0-PPG × V1-GP hybrid
+
+The evaluator also tests a skater-only hybrid:
+
+```text
+V0 implied PPG = V0 projected points / 84
+hybrid skater points = V0 implied PPG × V1 projected GP
+```
+
+For a skater without V1 history, projected GP defaults to 50. Goalies and teams
+remain at V0 because the hybrid only tests the skater PPG/GP decomposition.
+Both assumptions are configurable with `--v0-reference-games` and
+`--rookie-gp`. The draft-ready output is written to
+`09_v0_ppg_v1_gp_projections.csv`.

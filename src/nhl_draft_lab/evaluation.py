@@ -120,6 +120,54 @@ def build_v1_comparison(v0_master: pd.DataFrame, v1: pd.DataFrame) -> pd.DataFra
     return comparison
 
 
+def add_v0_ppg_v1_gp_hybrid(
+    comparison: pd.DataFrame,
+    v0_reference_games: float = 84.0,
+    rookie_gp: float = 50.0,
+) -> pd.DataFrame:
+    """Use V0 as skater scoring rate and V1 as the games-played component.
+
+    V0 projections in this project are expressed on an 84-game reference
+    basis.  Skaters without V1 history receive an explicit rookie/no-history
+    GP assumption instead of silently falling back to a full V0 point total.
+    Goalies and teams remain unchanged because this hybrid only addresses the
+    skater PPG/GP decomposition.
+    """
+
+    if v0_reference_games <= 0:
+        raise ValueError("v0_reference_games must be positive")
+    if rookie_gp < 0:
+        raise ValueError("rookie_gp cannot be negative")
+    if rookie_gp > v0_reference_games:
+        raise ValueError("rookie_gp cannot exceed v0_reference_games")
+
+    output = comparison.copy()
+    skater = output["category"].isin({"F", "D"})
+    v1_gp = pd.to_numeric(output.get("v1_projected_gp"), errors="coerce")
+
+    output["hybrid_projected_ppg"] = pd.NA
+    output["hybrid_projected_gp"] = pd.NA
+    output["hybrid_gp_source"] = "V0_UNCHANGED"
+    output["hybrid_projected_points"] = pd.to_numeric(
+        output["v0_projected_points"], errors="coerce"
+    ).astype(float)
+
+    output.loc[skater, "hybrid_projected_ppg"] = (
+        output.loc[skater, "v0_projected_points"] / float(v0_reference_games)
+    )
+    output.loc[skater, "hybrid_projected_gp"] = v1_gp.loc[skater].fillna(float(rookie_gp))
+    output.loc[skater & v1_gp.notna(), "hybrid_gp_source"] = "V1_HISTORY"
+    output.loc[skater & v1_gp.isna(), "hybrid_gp_source"] = "ROOKIE_DEFAULT"
+    output.loc[skater, "hybrid_projected_points"] = (
+        pd.to_numeric(output.loc[skater, "hybrid_projected_ppg"], errors="coerce")
+        * pd.to_numeric(output.loc[skater, "hybrid_projected_gp"], errors="coerce")
+    )
+    output["hybrid_error"] = (
+        output["actual_points"] - output["hybrid_projected_points"]
+    )
+    return output
+
+
 def _metrics(
     frame: pd.DataFrame,
     label: str,
@@ -183,6 +231,15 @@ def projection_metrics(comparison: pd.DataFrame) -> pd.DataFrame:
             )
         )
         rows.append(_metrics(comparison, "V0_full_universe", "v0_projected_points", category))
+        if "hybrid_projected_points" in comparison:
+            rows.append(
+                _metrics(
+                    comparison,
+                    "V0_PPG_x_V1_GP_with_rookie_default",
+                    "hybrid_projected_points",
+                    category,
+                )
+            )
     metrics = pd.DataFrame(rows)
     baseline = metrics.loc[
         metrics["model"].eq("V0_same_V1_coverage"), ["category", "mae"]
@@ -191,12 +248,19 @@ def projection_metrics(comparison: pd.DataFrame) -> pd.DataFrame:
     metrics["mae_delta_vs_v0_same_coverage"] = (
         metrics["mae"] - metrics["v0_same_coverage_mae"]
     )
+    full_baseline = metrics.loc[
+        metrics["model"].eq("V0_full_universe"), ["category", "mae"]
+    ].rename(columns={"mae": "v0_full_universe_mae"})
+    metrics = metrics.merge(full_baseline, on="category", how="left")
+    metrics["mae_delta_vs_v0_full_universe"] = (
+        metrics["mae"] - metrics["v0_full_universe_mae"]
+    )
     return metrics
 
 
 def _model_comparison_rows(frame: pd.DataFrame, category: str) -> list[dict[str, object]]:
     covered = frame.loc[frame["v1_available"]].copy()
-    return [
+    rows = [
         _metrics(covered, "V0_same_V1_coverage", "v0_projected_points", category),
         _metrics(covered, "V1_history_components", "v1_projected_points", category),
         _metrics(
@@ -207,6 +271,16 @@ def _model_comparison_rows(frame: pd.DataFrame, category: str) -> list[dict[str,
         ),
         _metrics(frame, "V0_full_universe", "v0_projected_points", category),
     ]
+    if "hybrid_projected_points" in frame:
+        rows.append(
+            _metrics(
+                frame,
+                "V0_PPG_x_V1_GP_with_rookie_default",
+                "hybrid_projected_points",
+                category,
+            )
+        )
+    return rows
 
 
 def _draft_segments(
@@ -271,6 +345,14 @@ def draft_zone_metrics(
     metrics = metrics.merge(baseline, on=["segment", "category"], how="left")
     metrics["mae_delta_vs_v0_same_coverage"] = (
         metrics["mae"] - metrics["v0_same_coverage_mae"]
+    )
+    full_baseline = metrics.loc[
+        metrics["model"].eq("V0_full_universe"),
+        ["segment", "category", "mae"],
+    ].rename(columns={"mae": "v0_full_universe_mae"})
+    metrics = metrics.merge(full_baseline, on=["segment", "category"], how="left")
+    metrics["mae_delta_vs_v0_full_universe"] = (
+        metrics["mae"] - metrics["v0_full_universe_mae"]
     )
     first = [
         "segment", "category", "rank_cutoff", "segment_assets", "v1_covered_assets",
@@ -441,6 +523,39 @@ def active_universe_projections(comparison: pd.DataFrame) -> pd.DataFrame:
         "projection_source": comparison["v1_available"].map(
             {True: "V1_HISTORY", False: "V0_FALLBACK"}
         ),
+    })
+    return output.sort_values(
+        ["category", "projected_points"], ascending=[True, False]
+    ).reset_index(drop=True)
+
+
+def hybrid_active_universe_projections(comparison: pd.DataFrame) -> pd.DataFrame:
+    """Export the V0-PPG/V1-GP hybrid through the projection-loader contract."""
+
+    if "hybrid_projected_points" not in comparison:
+        raise ValueError("comparison does not contain hybrid projections")
+
+    names = comparison.get("FullName", pd.Series(index=comparison.index, dtype=object)).copy()
+    if "Team" in comparison:
+        names = names.fillna(comparison["Team"])
+    if "v1_name" in comparison:
+        names = names.fillna(comparison["v1_name"])
+    v0_stddev = pd.to_numeric(
+        comparison.get("projection_std", pd.Series(index=comparison.index, dtype=float)),
+        errors="coerce",
+    ).fillna(0.0)
+
+    output = pd.DataFrame({
+        "entity_id": comparison["join_key"],
+        "name": names,
+        "category": comparison["category"],
+        "nhl_team": comparison["team_key"].map(_team),
+        "projected_points": comparison["hybrid_projected_points"],
+        "stddev_points": v0_stddev,
+        "projection_source": "V0_PPG_X_V1_GP",
+        "projected_ppg": comparison["hybrid_projected_ppg"],
+        "projected_gp": comparison["hybrid_projected_gp"],
+        "gp_source": comparison["hybrid_gp_source"],
     })
     return output.sort_values(
         ["category", "projected_points"], ascending=[True, False]
