@@ -194,6 +194,82 @@ def projection_metrics(comparison: pd.DataFrame) -> pd.DataFrame:
     return metrics
 
 
+def _model_comparison_rows(frame: pd.DataFrame, category: str) -> list[dict[str, object]]:
+    covered = frame.loc[frame["v1_available"]].copy()
+    return [
+        _metrics(covered, "V0_same_V1_coverage", "v0_projected_points", category),
+        _metrics(covered, "V1_history_components", "v1_projected_points", category),
+        _metrics(
+            frame,
+            "V1_with_V0_fallback_full_universe",
+            "v1_with_v0_fallback_points",
+            category,
+        ),
+        _metrics(frame, "V0_full_universe", "v0_projected_points", category),
+    ]
+
+
+def draft_zone_metrics(
+    comparison: pd.DataFrame,
+    draft_counts: dict[str, int],
+    defense_focus_ranks: tuple[int, ...] = (6, 9),
+) -> pd.DataFrame:
+    """Evaluate only decision-relevant ranks, based on pre-season V0 order.
+
+    Ranking on V0 rather than actual outcomes prevents target leakage.  The
+    defense focus windows keep elite-defense performance visible instead of
+    diluting it across every historical defenseman.
+    """
+
+    ranked = comparison.copy()
+    ranked["v0_category_rank"] = ranked.groupby("category")[
+        "v0_projected_points"
+    ].rank(method="first", ascending=False)
+    cutoff = ranked["category"].map(draft_counts)
+    draftable = ranked.loc[cutoff.notna() & ranked["v0_category_rank"].le(cutoff)].copy()
+
+    segments: list[tuple[str, str, int, pd.DataFrame]] = [
+        ("DRAFTABLE", "ALL", int(sum(draft_counts.values())), draftable)
+    ]
+    for category, count in draft_counts.items():
+        part = draftable.loc[draftable["category"] == category]
+        segments.append(("DRAFTABLE", category, int(count), part))
+    for count in sorted(set(defense_focus_ranks)):
+        if count <= 0:
+            raise ValueError("defense_focus_ranks must be positive")
+        part = ranked.loc[
+            ranked["category"].eq("D") & ranked["v0_category_rank"].le(count)
+        ].copy()
+        segments.append((f"D_TOP_{count}", "D", int(count), part))
+
+    rows: list[dict[str, object]] = []
+    for segment, category, rank_cutoff, part in segments:
+        for row in _model_comparison_rows(part, "ALL"):
+            row.update({
+                "segment": segment,
+                "category": category,
+                "rank_cutoff": rank_cutoff,
+                "segment_assets": len(part),
+                "v1_covered_assets": int(part["v1_available"].sum()),
+            })
+            rows.append(row)
+
+    metrics = pd.DataFrame(rows)
+    baseline = metrics.loc[
+        metrics["model"].eq("V0_same_V1_coverage"),
+        ["segment", "category", "mae"],
+    ].rename(columns={"mae": "v0_same_coverage_mae"})
+    metrics = metrics.merge(baseline, on=["segment", "category"], how="left")
+    metrics["mae_delta_vs_v0_same_coverage"] = (
+        metrics["mae"] - metrics["v0_same_coverage_mae"]
+    )
+    first = [
+        "segment", "category", "rank_cutoff", "segment_assets", "v1_covered_assets",
+        "model", "n",
+    ]
+    return metrics[[*first, *[column for column in metrics if column not in first]]]
+
+
 def skater_component_errors(comparison: pd.DataFrame) -> pd.DataFrame:
     skaters = comparison.loc[
         comparison["category"].isin({"F", "D"}) & comparison["v1_available"]

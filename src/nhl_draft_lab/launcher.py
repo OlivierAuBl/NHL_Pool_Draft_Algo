@@ -23,6 +23,7 @@ from nhl_draft_lab.evaluation import (
     active_universe_projections,
     build_v1_comparison,
     coverage_summary,
+    draft_zone_metrics,
     projection_metrics,
     skater_component_errors,
 )
@@ -126,6 +127,16 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     metrics = projection_metrics(comparison)
     skater_components = skater_component_errors(comparison)
     active_projections = active_universe_projections(comparison)
+    draft_counts = {
+        category: args.gms * args.roster.required(category)
+        for category in args.roster.counts
+        if args.roster.required(category) > 0
+    }
+    relevant_metrics = draft_zone_metrics(
+        comparison,
+        draft_counts=draft_counts,
+        defense_focus_ranks=tuple(args.defense_focus_ranks),
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     comparison.to_csv(args.output_dir / "01_v1_universe_comparison.csv", index=False)
@@ -133,6 +144,7 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     metrics.to_csv(args.output_dir / "03_v1_projection_metrics.csv", index=False)
     skater_components.to_csv(args.output_dir / "04_v1_skater_component_errors.csv", index=False)
     active_projections.to_csv(args.output_dir / "05_v1_active_universe_projections.csv", index=False)
+    relevant_metrics.to_csv(args.output_dir / "06_v1_draft_zone_metrics.csv", index=False)
 
     print("Stage 2 — V1.0 evaluation against frozen V0")
     print("\nCoverage")
@@ -143,6 +155,12 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         "pearson", "spearman", "mae_delta_vs_v0_same_coverage",
     ]]
     print(overall.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nDraft-relevant metrics")
+    relevant_display = relevant_metrics.loc[
+        relevant_metrics["model"].isin({"V0_same_V1_coverage", "V1_history_components"}),
+        ["segment", "category", "rank_cutoff", "model", "n", "mae", "rmse", "spearman"],
+    ]
+    print(relevant_display.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(f"\nEvaluation -> {args.output_dir}")
 
 
@@ -514,6 +532,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=Path("output/v1/evaluation"),
+    )
+    evaluate_v1.add_argument("--gms", type=int, default=15)
+    evaluate_v1.add_argument(
+        "--roster",
+        type=parse_roster,
+        default=RosterConfig({"F": 10, "D": 3, "G": 2, "T": 1}),
+        help="Per-GM roster used to define draftable category cutoffs",
+    )
+    evaluate_v1.add_argument(
+        "--defense-focus-ranks",
+        type=int,
+        nargs="+",
+        default=[6, 9],
+        help="Elite-defense rank windows reported separately (default: 6 9)",
     )
     evaluate_v1.set_defaults(func=cmd_evaluate_v1)
 

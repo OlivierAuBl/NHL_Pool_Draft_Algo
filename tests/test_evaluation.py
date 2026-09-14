@@ -7,6 +7,7 @@ from nhl_draft_lab.evaluation import (
     active_universe_projections,
     build_v1_comparison,
     coverage_summary,
+    draft_zone_metrics,
     projection_metrics,
     skater_component_errors,
 )
@@ -126,3 +127,58 @@ def test_legacy_arizona_abbreviation_matches_utah():
 
     assert utah["v1_available"]
     assert utah["v1_projected_points"] == 88
+
+
+def test_draft_zone_excludes_players_below_category_cutoff():
+    comparison = build_v1_comparison(v0_master(), v1_projections())
+
+    metrics = draft_zone_metrics(
+        comparison,
+        draft_counts={"F": 1, "G": 1, "T": 1},
+        defense_focus_ranks=(6, 9),
+    )
+    overall_v0 = metrics.loc[
+        metrics["segment"].eq("DRAFTABLE")
+        & metrics["category"].eq("ALL")
+        & metrics["model"].eq("V0_full_universe")
+    ].iloc[0]
+
+    assert overall_v0["segment_assets"] == 3
+    assert overall_v0["n"] == 3
+
+
+def test_defense_focus_windows_are_reported_separately():
+    master = pd.concat([
+        v0_master(),
+        pd.DataFrame([
+            {
+                "category": "D", "NHLID": number, "team_key": "AAA",
+                "FullName": f"D{number}", "projection_median": 100 - number,
+                "actual_points": 90 - number, "games_played": 82,
+                "goals": 10, "assists": 30,
+            }
+            for number in range(10, 20)
+        ]),
+    ], ignore_index=True)
+    projections = pd.concat([
+        v1_projections(),
+        pd.DataFrame([
+            {
+                "entity_id": str(number), "category": "D", "nhl_team": "AAA",
+                "name": f"D{number}", "projected_points": 92 - number,
+            }
+            for number in range(10, 20)
+        ]),
+    ], ignore_index=True)
+    comparison = build_v1_comparison(master, projections)
+
+    metrics = draft_zone_metrics(
+        comparison,
+        draft_counts={"D": 10},
+        defense_focus_ranks=(6, 9),
+    )
+
+    top6 = metrics.loc[metrics["segment"].eq("D_TOP_6")].iloc[0]
+    top9 = metrics.loc[metrics["segment"].eq("D_TOP_9")].iloc[0]
+    assert top6["segment_assets"] == 6
+    assert top9["segment_assets"] == 9

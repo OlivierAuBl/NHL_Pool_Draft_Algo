@@ -114,6 +114,11 @@ nhl-draft evaluate-v1 `
 
 This reports V0 and V1 on identical historical coverage, then constructs a complete active universe using V0 only as a fallback for players without NHL history. The resulting `05_v1_active_universe_projections.csv` follows the existing projection-loader contract.
 
+The evaluation also writes `06_v1_draft_zone_metrics.csv`. By default, it
+focuses on the 15-GM draftable zone (F150, D45, G30, T15) and reports the top 6
+and top 9 defensemen separately. Override `--gms`, `--roster`, or
+`--defense-focus-ranks` when the pool format changes.
+
 You can explicitly test other opponent models as well:
 
 ```bash
