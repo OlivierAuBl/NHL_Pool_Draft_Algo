@@ -93,9 +93,10 @@ The four reported model rows distinguish:
 
 This prevents coverage differences from being mistaken for model improvements. Skater GP and PPG errors are exported separately in `04_v1_skater_component_errors.csv`.
 
-`06_v1_draft_zone_metrics.csv` restricts the main diagnostic to ranks that can
-actually be drafted. With the default 15-GM roster, the cutoffs are F150, D45,
-G30 and T15. Ranks are based on the preseason V0 projection, not realised
+`06_v1_draft_zone_metrics.csv` restricts the main diagnostic to a broad
+draft-relevant zone. The default cutoffs are F200, D75, G45 and T25, leaving a
+buffer around the assets likely to be selected without including the full
+historical depth. Ranks are based on the preseason V0 projection, not realised
 results. Defensemen ranked in the top 6 and top 9 are also reported separately
 so their signal is not diluted by lower-value defensemen.
 
@@ -105,7 +106,6 @@ The pool format and defense windows are configurable:
 nhl-draft evaluate-v1 \
   --v0-master output/v0_full_analysis/02_projection_master.csv \
   --v1 output/v1/projections.csv \
-  --gms 15 \
-  --roster F=10,D=3,G=2,T=1 \
+  --draft-counts F=200,D=75,G=45,T=25 \
   --defense-focus-ranks 6 9
 ```

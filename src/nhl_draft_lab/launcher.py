@@ -128,9 +128,9 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     skater_components = skater_component_errors(comparison)
     active_projections = active_universe_projections(comparison)
     draft_counts = {
-        category: args.gms * args.roster.required(category)
-        for category in args.roster.counts
-        if args.roster.required(category) > 0
+        category: args.draft_counts.required(category)
+        for category in args.draft_counts.counts
+        if args.draft_counts.required(category) > 0
     }
     relevant_metrics = draft_zone_metrics(
         comparison,
@@ -533,12 +533,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("output/v1/evaluation"),
     )
-    evaluate_v1.add_argument("--gms", type=int, default=15)
     evaluate_v1.add_argument(
-        "--roster",
+        "--draft-counts",
         type=parse_roster,
-        default=RosterConfig({"F": 10, "D": 3, "G": 2, "T": 1}),
-        help="Per-GM roster used to define draftable category cutoffs",
+        default=RosterConfig({"F": 200, "D": 75, "G": 45, "T": 25}),
+        help="Total category cutoffs for the draft-relevant evaluation zone",
     )
     evaluate_v1.add_argument(
         "--defense-focus-ranks",
