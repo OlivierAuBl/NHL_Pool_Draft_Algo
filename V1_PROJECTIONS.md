@@ -72,3 +72,23 @@ nhl-draft project-v1 \
 ```
 
 The generated CSV contains `entity_id`, `name`, `category`, `projected_points` and `stddev_points`, so it can be read by the existing projection loader.
+
+## Evaluation against frozen V0
+
+```bash
+nhl-draft evaluate-v1 \
+  --v0-master output/v0_full_analysis/02_projection_master.csv \
+  --v1 output/v1/projections.csv \
+  --output-dir output/v1/evaluation
+```
+
+The evaluation uses V0's master table as the target-season universe. Historical players absent from that table are discarded. Active players without usable history retain their V0 projection as an explicit fallback.
+
+The four reported model rows distinguish:
+
+- V0 on the exact subset covered by V1;
+- V1 historical components on that same subset;
+- V1 plus V0 fallback on the complete active universe;
+- V0 on the complete active universe.
+
+This prevents coverage differences from being mistaken for model improvements. Skater GP and PPG errors are exported separately in `04_v1_skater_component_errors.csv`.

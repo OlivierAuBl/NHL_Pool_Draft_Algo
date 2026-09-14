@@ -103,6 +103,17 @@ nhl-draft project-v1 `
 
 The manual context file is optional. It can carry projected lines, PP units and linemate-quality notes without silently changing the estimate. Explicit overrides are available for known injuries or roles. See [`description_pred_2025.md`](description_pred_2025.md) for the broader projection discussion and [`V1_PROJECTIONS.md`](V1_PROJECTIONS.md) for the exact V1.0 contract.
 
+Evaluate the historical baseline on exactly the same active-player universe as V0:
+
+```bash
+nhl-draft evaluate-v1 `
+  --v0-master output/v0_full_analysis/02_projection_master.csv `
+  --v1 output/v1/projections.csv `
+  --output-dir output/v1/evaluation
+```
+
+This reports V0 and V1 on identical historical coverage, then constructs a complete active universe using V0 only as a fallback for players without NHL history. The resulting `05_v1_active_universe_projections.csv` follows the existing projection-loader contract.
+
 You can explicitly test other opponent models as well:
 
 ```bash
