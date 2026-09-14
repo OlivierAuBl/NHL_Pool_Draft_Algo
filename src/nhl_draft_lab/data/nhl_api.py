@@ -86,6 +86,8 @@ def _skaters(raw: Iterable[dict[str, Any]], season_id: int) -> pd.DataFrame:
             continue
         goals = _int(row.get("goals"))
         assists = _int(row.get("assists"))
+        shots = _int(row.get("shots"))
+        power_play_points = _int(row.get("ppPoints", row.get("powerPlayPoints")))
         position = str(row.get("positionCode") or "").upper()
         category = "D" if position == "D" else "F"
         pool_points = SKATER_GOAL_POINTS * goals + SKATER_ASSIST_POINTS * assists
@@ -97,8 +99,12 @@ def _skaters(raw: Iterable[dict[str, Any]], season_id: int) -> pd.DataFrame:
             "nhl_team": row.get("teamAbbrevs") or "",
             "position": position,
             "games_played": gp,
+            "games_started": 0,
             "goals": goals,
             "assists": assists,
+            "shots": shots,
+            "shooting_pct": _num(row.get("shootingPct")),
+            "power_play_points": power_play_points,
             "wins": 0,
             "losses": 0,
             "ot_losses": 0,
@@ -120,6 +126,11 @@ def _goalies(raw: Iterable[dict[str, Any]], season_id: int) -> pd.DataFrame:
         losses = _int(row.get("losses"))
         ot_losses = _int(row.get("otLosses"))
         shutouts = _int(row.get("shutouts"))
+        games_started = (
+            _int(row.get("gamesStarted"))
+            if row.get("gamesStarted") not in (None, "")
+            else pd.NA
+        )
         pool_points = (
             GOALIE_GOAL_POINTS * goals
             + GOALIE_ASSIST_POINTS * assists
@@ -135,8 +146,12 @@ def _goalies(raw: Iterable[dict[str, Any]], season_id: int) -> pd.DataFrame:
             "nhl_team": row.get("teamAbbrevs") or "",
             "position": "G",
             "games_played": gp,
+            "games_started": games_started,
             "goals": goals,
             "assists": assists,
+            "shots": 0,
+            "shooting_pct": 0.0,
+            "power_play_points": 0,
             "wins": wins,
             "losses": losses,
             "ot_losses": ot_losses,
@@ -164,8 +179,12 @@ def _teams(raw: Iterable[dict[str, Any]], season_id: int) -> pd.DataFrame:
             "nhl_team": row.get("teamAbbrev") or row.get("teamAbbrevs") or "",
             "position": "TEAM",
             "games_played": gp,
+            "games_started": 0,
             "goals": 0,
             "assists": 0,
+            "shots": 0,
+            "shooting_pct": 0.0,
+            "power_play_points": 0,
             "wins": wins,
             "losses": losses,
             "ot_losses": ot_losses,

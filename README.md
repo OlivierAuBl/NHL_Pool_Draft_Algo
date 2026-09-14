@@ -1,10 +1,12 @@
-# NHL Draft Lab — Stage 1
+# NHL Draft Lab
 
 This repository currently answers one question only:
 
 > **If we knew the final NHL season results in advance, which draft-selection logic would build the best roster?**
 
-There are deliberately **no projections and no Monte Carlo in Stage 1**. Historical final-season values are treated as perfectly known. This isolates the quality of the draft algorithm from the quality of any forecasting model.
+Stage 1 deliberately contains **no projections**: historical final-season values are treated as perfectly known. This isolates the quality of the draft algorithm from the quality of any forecasting model.
+
+Stage 2 V1.0 adds a separate, transparent projection baseline. It does not modify Stage 1 or the frozen published-projection V0 benchmark.
 
 ## Strategies
 
@@ -83,6 +85,24 @@ nhl-draft backtest `
   --opponent-strategies vorp
 ```
 
+## 4. Build V1.0 component projections
+
+V1.0 projects skater production and availability separately:
+
+`skater points = projected PPG × projected GP`
+
+For goalies it projects start share, availability, wins/start, shutouts/start and OTL/start. Recent seasons receive default weights of 60%, 30% and 10%.
+
+```bash
+nhl-draft project-v1 `
+  --db data/nhl_history.sqlite `
+  --history-seasons 20222023 20232024 20242025 `
+  --manual-context data/v1_manual_context.csv `
+  --output output/v1/projections.csv
+```
+
+The manual context file is optional. It can carry projected lines, PP units and linemate-quality notes without silently changing the estimate. Explicit overrides are available for known injuries or roles. See [`description_pred_2025.md`](description_pred_2025.md) for the broader projection discussion and [`V1_PROJECTIONS.md`](V1_PROJECTIONS.md) for the exact V1.0 contract.
+
 You can explicitly test other opponent models as well:
 
 ```bash
@@ -98,7 +118,5 @@ nhl-draft backtest `
 
 ## Deferred intentionally
 
-- **Stage 2:** forecast end-of-season GP/PPG/team points/goalie GP, win%, SO%.
+- **Stage 2 next:** backtest and calibrate age, career GP, role, sustainability and team-context adjustments on top of the V1.0 baseline.
 - **Stage 3:** combine the best Stage-1 draft policy with Stage-2 uncertainty and Monte Carlo.
-
-Those stages are not implemented in this version on purpose.
