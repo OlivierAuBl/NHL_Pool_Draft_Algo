@@ -22,6 +22,7 @@ from nhl_draft_lab.draft.engine import replacement_levels, run_draft
 from nhl_draft_lab.evaluation import (
     active_universe_projections,
     add_v0_ppg_v1_gp_hybrid,
+    add_weighted_gp_candidate,
     blend_grid_metrics,
     build_v1_comparison,
     coverage_summary,
@@ -31,6 +32,7 @@ from nhl_draft_lab.evaluation import (
     hybrid_active_universe_projections,
     projection_metrics,
     skater_component_errors,
+    weighted_gp_candidate_projections,
 )
 from nhl_draft_lab.forecasting import ForecastConfig, project_v1
 from nhl_draft_lab.models import RosterConfig
@@ -134,11 +136,17 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         rookie_gp=args.rookie_gp,
         rookie_defense_gp=args.rookie_defense_gp,
     )
+    comparison = add_weighted_gp_candidate(
+        comparison,
+        forward_gp_weight=args.forward_gp_weight,
+        defense_gp_weight=args.defense_gp_weight,
+    )
     coverage = coverage_summary(comparison)
     metrics = projection_metrics(comparison)
     skater_components = skater_component_errors(comparison)
     active_projections = active_universe_projections(comparison)
     hybrid_projections = hybrid_active_universe_projections(comparison)
+    candidate_projections = weighted_gp_candidate_projections(comparison)
     draft_counts = {
         category: args.draft_counts.required(category)
         for category in args.draft_counts.counts
@@ -182,6 +190,9 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     gp_correction_metrics.to_csv(
         args.output_dir / "10_v1_gp_correction_grid.csv", index=False
     )
+    candidate_projections.to_csv(
+        args.output_dir / "11_v1_weighted_gp_candidate.csv", index=False
+    )
 
     print("Stage 2 — V1.0 evaluation against frozen V0")
     print("\nCoverage")
@@ -198,6 +209,7 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
             "V0_same_V1_coverage",
             "V1_history_components",
             "V0_PPG_x_V1_GP_with_rookie_default",
+            "V1_weighted_gp_candidate",
         }),
         ["segment", "category", "rank_cutoff", "model", "n", "mae", "rmse", "spearman"],
     ]
@@ -225,6 +237,10 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         f"\nHybrid assumptions: V0 points / {args.v0_reference_games:g} games; "
         f"no-history F = {args.rookie_gp:g} GP; "
         f"no-history D = {args.rookie_defense_gp:g} GP"
+    )
+    print(
+        f"Weighted candidate: F historical-GP weight = {args.forward_gp_weight:.1%}; "
+        f"D historical-GP weight = {args.defense_gp_weight:.1%}"
     )
     print(f"\nEvaluation -> {args.output_dir}")
 
@@ -624,6 +640,18 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[step / 10 for step in range(11)],
         help="V1 GP weights applied to skaters with history (default: 0.0 through 1.0)",
+    )
+    evaluate_v1.add_argument(
+        "--forward-gp-weight",
+        type=float,
+        default=0.30,
+        help="Historical-GP correction used by the F candidate (default: 0.30)",
+    )
+    evaluate_v1.add_argument(
+        "--defense-gp-weight",
+        type=float,
+        default=0.60,
+        help="Historical-GP correction used by the D candidate (default: 0.60)",
     )
     evaluate_v1.add_argument(
         "--v0-reference-games",

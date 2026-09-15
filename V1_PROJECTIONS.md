@@ -151,3 +151,15 @@ The default grid runs from `alpha=0` to `alpha=1` by tenths. The 50-GP forward
 and 60-GP defense defaults remain fixed at every alpha, which isolates the
 incremental value of historical GP. The lowest-MAE weight is an in-sample
 diagnostic only and is not automatically used as a production coefficient.
+
+## Weighted GP candidate
+
+The current candidate applies the best broad draft-zone weights from the
+diagnostic grid: 30% of the historical-GP correction for forwards and 60% for
+defensemen. No-history defaults remain 50 GP for F and 60 GP for D; goalies and
+teams remain at V0. The weights can be changed with `--forward-gp-weight` and
+`--defense-gp-weight`.
+
+`11_v1_weighted_gp_candidate.csv` follows the projection-loader contract and
+can therefore be supplied directly to the draft engine. It remains explicitly
+an in-sample candidate until it is validated on additional seasons.

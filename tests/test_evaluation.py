@@ -6,6 +6,7 @@ import pytest
 from nhl_draft_lab.evaluation import (
     active_universe_projections,
     add_v0_ppg_v1_gp_hybrid,
+    add_weighted_gp_candidate,
     blend_grid_metrics,
     build_v1_comparison,
     coverage_summary,
@@ -15,6 +16,7 @@ from nhl_draft_lab.evaluation import (
     hybrid_active_universe_projections,
     projection_metrics,
     skater_component_errors,
+    weighted_gp_candidate_projections,
 )
 
 
@@ -142,6 +144,54 @@ def test_hybrid_assumptions_must_be_valid():
         add_v0_ppg_v1_gp_hybrid(
             comparison, v0_reference_games=84, rookie_defense_gp=85
         )
+
+
+def test_weighted_gp_candidate_uses_category_weight_and_fixed_no_history_gp():
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        build_v1_comparison(v0_master(), v1_projections()),
+        v0_reference_games=84,
+        rookie_gp=50,
+        rookie_defense_gp=60,
+    )
+    candidate = add_weighted_gp_candidate(
+        comparison, forward_gp_weight=0.30, defense_gp_weight=0.60
+    )
+
+    veteran = candidate.loc[candidate["NHLID"] == 1].iloc[0]
+    rookie = candidate.loc[candidate["NHLID"] == 2].iloc[0]
+    goalie = candidate.loc[candidate["NHLID"] == 3].iloc[0]
+    full_hybrid = 90 / 84 * 80
+    assert veteran["candidate_projected_points"] == pytest.approx(
+        90 + 0.30 * (full_hybrid - 90)
+    )
+    assert veteran["candidate_gp_weight"] == pytest.approx(0.30)
+    assert rookie["candidate_projected_points"] == pytest.approx(40 / 84 * 50)
+    assert rookie["candidate_projection_source"] == "NO_HISTORY_F_DEFAULT"
+    assert goalie["candidate_projected_points"] == 60
+
+
+def test_weighted_gp_candidate_is_exported_for_the_draft_engine():
+    comparison = add_weighted_gp_candidate(
+        add_v0_ppg_v1_gp_hybrid(
+            build_v1_comparison(v0_master(), v1_projections())
+        )
+    )
+    candidate = weighted_gp_candidate_projections(comparison)
+
+    assert len(candidate) == 4
+    assert {"entity_id", "name", "category", "projected_points", "stddev_points"} <= set(candidate)
+    assert candidate.loc[candidate["entity_id"] == "P:1", "gp_weight"].iloc[0] == pytest.approx(0.30)
+
+    metrics = projection_metrics(comparison)
+    assert "V1_weighted_gp_candidate" in set(metrics["model"])
+
+
+def test_weighted_gp_candidate_rejects_non_convex_weights():
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        build_v1_comparison(v0_master(), v1_projections())
+    )
+    with pytest.raises(ValueError, match="forward_gp_weight must be between 0 and 1"):
+        add_weighted_gp_candidate(comparison, forward_gp_weight=1.1)
 
 
 def test_component_output_separates_skater_gp_and_ppg_errors():

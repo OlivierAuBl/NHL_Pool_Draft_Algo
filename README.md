@@ -123,6 +123,11 @@ these assumptions with `--v0-reference-games`, `--rookie-gp` and
 with history while holding the 50/60-GP no-history defaults fixed. Customize
 the diagnostic grid with `--gp-correction-weights`.
 
+`11_v1_weighted_gp_candidate.csv` materializes the current category-specific
+candidate (30% historical-GP correction for F, 60% for D, and V0 for G/T) in
+the existing draft projection format. Override the candidate weights with
+`--forward-gp-weight` and `--defense-gp-weight`.
+
 This reports V0 and V1 on identical historical coverage, then constructs a complete active universe using V0 only as a fallback for players without NHL history. The resulting `05_v1_active_universe_projections.csv` follows the existing projection-loader contract.
 
 The evaluation also writes `06_v1_draft_zone_metrics.csv`. By default, it

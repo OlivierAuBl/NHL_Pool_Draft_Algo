@@ -182,6 +182,85 @@ def add_v0_ppg_v1_gp_hybrid(
     return output
 
 
+def add_weighted_gp_candidate(
+    comparison: pd.DataFrame,
+    forward_gp_weight: float = 0.30,
+    defense_gp_weight: float = 0.60,
+) -> pd.DataFrame:
+    """Build the category-weighted GP candidate selected by diagnostics."""
+
+    for label, value in {
+        "forward_gp_weight": forward_gp_weight,
+        "defense_gp_weight": defense_gp_weight,
+    }.items():
+        if value < 0 or value > 1:
+            raise ValueError(f"{label} must be between 0 and 1")
+    required = {
+        "hybrid_projected_points",
+        "hybrid_projected_ppg",
+        "hybrid_projected_gp",
+        "hybrid_gp_source",
+    }
+    missing = required - set(comparison.columns)
+    if missing:
+        raise ValueError(f"comparison is missing hybrid columns: {sorted(missing)}")
+
+    output = comparison.copy()
+    history = output["hybrid_gp_source"].eq("V1_HISTORY")
+    no_history = output["hybrid_gp_source"].isin(
+        {"NO_HISTORY_F_DEFAULT", "NO_HISTORY_D_DEFAULT"}
+    )
+    category_weight = output["category"].map({
+        "F": float(forward_gp_weight),
+        "D": float(defense_gp_weight),
+    })
+
+    output["candidate_projected_points"] = pd.to_numeric(
+        output["v0_projected_points"], errors="coerce"
+    ).astype(float)
+    output["candidate_projected_ppg"] = pd.NA
+    output["candidate_effective_gp"] = pd.NA
+    output["candidate_gp_weight"] = pd.NA
+    output["candidate_projection_source"] = "V0_UNCHANGED"
+
+    output.loc[history, "candidate_projected_points"] = (
+        output.loc[history, "v0_projected_points"]
+        + category_weight.loc[history]
+        * (
+            output.loc[history, "hybrid_projected_points"]
+            - output.loc[history, "v0_projected_points"]
+        )
+    )
+    output.loc[history, "candidate_projected_ppg"] = output.loc[
+        history, "hybrid_projected_ppg"
+    ]
+    output.loc[history, "candidate_effective_gp"] = (
+        output.loc[history, "candidate_projected_points"]
+        / pd.to_numeric(
+            output.loc[history, "candidate_projected_ppg"], errors="coerce"
+        ).where(lambda values: values > 0)
+    )
+    output.loc[history, "candidate_gp_weight"] = category_weight.loc[history]
+    output.loc[history, "candidate_projection_source"] = "PARTIAL_GP_HISTORY"
+
+    output.loc[no_history, "candidate_projected_points"] = output.loc[
+        no_history, "hybrid_projected_points"
+    ]
+    output.loc[no_history, "candidate_projected_ppg"] = output.loc[
+        no_history, "hybrid_projected_ppg"
+    ]
+    output.loc[no_history, "candidate_effective_gp"] = output.loc[
+        no_history, "hybrid_projected_gp"
+    ]
+    output.loc[no_history, "candidate_projection_source"] = output.loc[
+        no_history, "hybrid_gp_source"
+    ]
+    output["candidate_error"] = (
+        output["actual_points"] - output["candidate_projected_points"]
+    )
+    return output
+
+
 def _metrics(
     frame: pd.DataFrame,
     label: str,
@@ -254,6 +333,15 @@ def projection_metrics(comparison: pd.DataFrame) -> pd.DataFrame:
                     category,
                 )
             )
+        if "candidate_projected_points" in comparison:
+            rows.append(
+                _metrics(
+                    comparison,
+                    "V1_weighted_gp_candidate",
+                    "candidate_projected_points",
+                    category,
+                )
+            )
     metrics = pd.DataFrame(rows)
     baseline = metrics.loc[
         metrics["model"].eq("V0_same_V1_coverage"), ["category", "mae"]
@@ -291,6 +379,15 @@ def _model_comparison_rows(frame: pd.DataFrame, category: str) -> list[dict[str,
                 frame,
                 "V0_PPG_x_V1_GP_with_rookie_default",
                 "hybrid_projected_points",
+                category,
+            )
+        )
+    if "candidate_projected_points" in frame:
+        rows.append(
+            _metrics(
+                frame,
+                "V1_weighted_gp_candidate",
+                "candidate_projected_points",
                 category,
             )
         )
@@ -657,6 +754,39 @@ def hybrid_active_universe_projections(comparison: pd.DataFrame) -> pd.DataFrame
         "projected_ppg": comparison["hybrid_projected_ppg"],
         "projected_gp": comparison["hybrid_projected_gp"],
         "gp_source": comparison["hybrid_gp_source"],
+    })
+    return output.sort_values(
+        ["category", "projected_points"], ascending=[True, False]
+    ).reset_index(drop=True)
+
+
+def weighted_gp_candidate_projections(comparison: pd.DataFrame) -> pd.DataFrame:
+    """Export the weighted GP candidate through the projection-loader contract."""
+
+    if "candidate_projected_points" not in comparison:
+        raise ValueError("comparison does not contain weighted GP candidate projections")
+
+    names = comparison.get("FullName", pd.Series(index=comparison.index, dtype=object)).copy()
+    if "Team" in comparison:
+        names = names.fillna(comparison["Team"])
+    if "v1_name" in comparison:
+        names = names.fillna(comparison["v1_name"])
+    v0_stddev = pd.to_numeric(
+        comparison.get("projection_std", pd.Series(index=comparison.index, dtype=float)),
+        errors="coerce",
+    ).fillna(0.0)
+
+    output = pd.DataFrame({
+        "entity_id": comparison["join_key"],
+        "name": names,
+        "category": comparison["category"],
+        "nhl_team": comparison["team_key"].map(_team),
+        "projected_points": comparison["candidate_projected_points"],
+        "stddev_points": v0_stddev,
+        "projection_source": comparison["candidate_projection_source"],
+        "projected_ppg": comparison["candidate_projected_ppg"],
+        "projected_gp": comparison["candidate_effective_gp"],
+        "gp_weight": comparison["candidate_gp_weight"],
     })
     return output.sort_values(
         ["category", "projected_points"], ascending=[True, False]
