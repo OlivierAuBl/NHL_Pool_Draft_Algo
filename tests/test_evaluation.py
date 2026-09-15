@@ -90,19 +90,31 @@ def test_metrics_compare_v0_and_v1_on_identical_coverage():
 
 
 def test_hybrid_uses_v0_rate_v1_gp_and_rookie_gp_default():
+    master = pd.concat([
+        v0_master(),
+        pd.DataFrame([{
+            "category": "D", "NHLID": 4, "team_key": "DDD",
+            "FullName": "Rookie Defenseman", "projection_median": 42,
+            "actual_points": 30, "games_played": 60, "goals": 5, "assists": 25,
+        }]),
+    ], ignore_index=True)
     comparison = add_v0_ppg_v1_gp_hybrid(
-        build_v1_comparison(v0_master(), v1_projections()),
+        build_v1_comparison(master, v1_projections()),
         v0_reference_games=84,
         rookie_gp=50,
+        rookie_defense_gp=60,
     )
 
     veteran = comparison.loc[comparison["NHLID"] == 1].iloc[0]
     rookie = comparison.loc[comparison["NHLID"] == 2].iloc[0]
     goalie = comparison.loc[comparison["NHLID"] == 3].iloc[0]
+    rookie_defenseman = comparison.loc[comparison["NHLID"] == 4].iloc[0]
     assert veteran["hybrid_projected_points"] == pytest.approx(90 / 84 * 80)
     assert veteran["hybrid_gp_source"] == "V1_HISTORY"
     assert rookie["hybrid_projected_points"] == pytest.approx(40 / 84 * 50)
-    assert rookie["hybrid_gp_source"] == "ROOKIE_DEFAULT"
+    assert rookie["hybrid_gp_source"] == "NO_HISTORY_F_DEFAULT"
+    assert rookie_defenseman["hybrid_projected_points"] == pytest.approx(42 / 84 * 60)
+    assert rookie_defenseman["hybrid_gp_source"] == "NO_HISTORY_D_DEFAULT"
     assert goalie["hybrid_projected_points"] == 60
 
 
@@ -125,6 +137,10 @@ def test_hybrid_assumptions_must_be_valid():
         add_v0_ppg_v1_gp_hybrid(comparison, rookie_gp=-1)
     with pytest.raises(ValueError, match="rookie_gp cannot exceed"):
         add_v0_ppg_v1_gp_hybrid(comparison, v0_reference_games=84, rookie_gp=85)
+    with pytest.raises(ValueError, match="rookie_defense_gp cannot exceed"):
+        add_v0_ppg_v1_gp_hybrid(
+            comparison, v0_reference_games=84, rookie_defense_gp=85
+        )
 
 
 def test_component_output_separates_skater_gp_and_ppg_errors():

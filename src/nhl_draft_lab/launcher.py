@@ -131,6 +131,7 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         comparison,
         v0_reference_games=args.v0_reference_games,
         rookie_gp=args.rookie_gp,
+        rookie_defense_gp=args.rookie_defense_gp,
     )
     coverage = coverage_summary(comparison)
     metrics = projection_metrics(comparison)
@@ -202,7 +203,8 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     print(best_blends.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(
         f"\nHybrid assumptions: V0 points / {args.v0_reference_games:g} games; "
-        f"rookie/no-history skaters = {args.rookie_gp:g} GP"
+        f"no-history F = {args.rookie_gp:g} GP; "
+        f"no-history D = {args.rookie_defense_gp:g} GP"
     )
     print(f"\nEvaluation -> {args.output_dir}")
 
@@ -606,7 +608,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--rookie-gp",
         type=float,
         default=50.0,
-        help="GP assumption for skaters without V1 history (default: 50)",
+        help="GP assumption for forwards without V1 history (default: 50)",
+    )
+    evaluate_v1.add_argument(
+        "--rookie-defense-gp",
+        type=float,
+        default=60.0,
+        help="GP assumption for defensemen without V1 history (default: 60)",
     )
     evaluate_v1.set_defaults(func=cmd_evaluate_v1)
 

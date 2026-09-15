@@ -124,6 +124,7 @@ def add_v0_ppg_v1_gp_hybrid(
     comparison: pd.DataFrame,
     v0_reference_games: float = 84.0,
     rookie_gp: float = 50.0,
+    rookie_defense_gp: float = 60.0,
 ) -> pd.DataFrame:
     """Use V0 as skater scoring rate and V1 as the games-played component.
 
@@ -136,10 +137,14 @@ def add_v0_ppg_v1_gp_hybrid(
 
     if v0_reference_games <= 0:
         raise ValueError("v0_reference_games must be positive")
-    if rookie_gp < 0:
-        raise ValueError("rookie_gp cannot be negative")
-    if rookie_gp > v0_reference_games:
-        raise ValueError("rookie_gp cannot exceed v0_reference_games")
+    for label, value in {
+        "rookie_gp": rookie_gp,
+        "rookie_defense_gp": rookie_defense_gp,
+    }.items():
+        if value < 0:
+            raise ValueError(f"{label} cannot be negative")
+        if value > v0_reference_games:
+            raise ValueError(f"{label} cannot exceed v0_reference_games")
 
     output = comparison.copy()
     skater = output["category"].isin({"F", "D"})
@@ -155,9 +160,18 @@ def add_v0_ppg_v1_gp_hybrid(
     output.loc[skater, "hybrid_projected_ppg"] = (
         output.loc[skater, "v0_projected_points"] / float(v0_reference_games)
     )
-    output.loc[skater, "hybrid_projected_gp"] = v1_gp.loc[skater].fillna(float(rookie_gp))
+    no_history_gp = pd.Series(float(rookie_gp), index=output.index)
+    no_history_gp.loc[output["category"].eq("D")] = float(rookie_defense_gp)
+    output.loc[skater, "hybrid_projected_gp"] = v1_gp.loc[skater].fillna(
+        no_history_gp.loc[skater]
+    )
     output.loc[skater & v1_gp.notna(), "hybrid_gp_source"] = "V1_HISTORY"
-    output.loc[skater & v1_gp.isna(), "hybrid_gp_source"] = "ROOKIE_DEFAULT"
+    output.loc[
+        output["category"].eq("F") & v1_gp.isna(), "hybrid_gp_source"
+    ] = "NO_HISTORY_F_DEFAULT"
+    output.loc[
+        output["category"].eq("D") & v1_gp.isna(), "hybrid_gp_source"
+    ] = "NO_HISTORY_D_DEFAULT"
     output.loc[skater, "hybrid_projected_points"] = (
         pd.to_numeric(output.loc[skater, "hybrid_projected_ppg"], errors="coerce")
         * pd.to_numeric(output.loc[skater, "hybrid_projected_gp"], errors="coerce")

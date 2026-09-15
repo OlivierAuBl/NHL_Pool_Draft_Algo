@@ -133,8 +133,9 @@ V0 implied PPG = V0 projected points / 84
 hybrid skater points = V0 implied PPG × V1 projected GP
 ```
 
-For a skater without V1 history, projected GP defaults to 50. Goalies and teams
-remain at V0 because the hybrid only tests the skater PPG/GP decomposition.
-Both assumptions are configurable with `--v0-reference-games` and
-`--rookie-gp`. The draft-ready output is written to
+For a forward without V1 history, projected GP defaults to 50; a defenseman
+without history defaults to 60. Goalies and teams remain at V0 because the
+hybrid only tests the skater PPG/GP decomposition. These assumptions are
+configurable with `--v0-reference-games`, `--rookie-gp` and
+`--rookie-defense-gp`. The draft-ready output is written to
 `09_v0_ppg_v1_gp_projections.csv`.
