@@ -42,6 +42,7 @@ from nhl_draft_lab.projection_backtest import (
     draft_category_totals,
     paired_category_deltas,
     paired_candidate_deltas,
+    roster_swap_diagnostics,
     run_focal_candidate_comparison,
     summarize_category_deltas,
     summarize_paired_deltas,
@@ -284,6 +285,7 @@ def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
     category_totals = draft_category_totals(picks)
     category_paired = paired_category_deltas(category_totals)
     category_summary = summarize_category_deltas(category_paired)
+    swap_summary, swaps = roster_swap_diagnostics(picks)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     summary.to_csv(args.output_dir / "01_projection_draft_summary.csv", index=False)
@@ -297,6 +299,10 @@ def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
         args.output_dir / "06_candidate_vs_v0_by_category.csv", index=False
     )
     audit.to_csv(args.output_dir / "07_projection_match_audit.csv", index=False)
+    swap_summary.to_csv(
+        args.output_dir / "08_candidate_roster_swap_summary.csv", index=False
+    )
+    swaps.to_csv(args.output_dir / "09_candidate_roster_swaps.csv", index=False)
 
     counts = universe["category"].value_counts().to_dict()
     print("Stage 2 — one weighted-GP candidate GM vs V0 opponents")
@@ -308,6 +314,17 @@ def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
     print(paired_summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print("\nCandidate actual-points deltas vs V0 by roster category")
     print(category_summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    defense_swaps = swap_summary.loc[swap_summary["category"].eq("D")].copy()
+    defense_swaps["absolute_delta"] = defense_swaps["actual_points_delta"].abs()
+    defense_swaps = defense_swaps.sort_values(
+        "absolute_delta", ascending=False
+    ).head(10)
+    print("\nLargest defense roster changes")
+    print(defense_swaps[[
+        "strategy", "draft_slot", "assets_added", "actual_points_delta",
+        "v0_first_pick_round", "candidate_first_pick_round",
+        "first_pick_round_delta",
+    ]].to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print("\nWarning: candidate GP weights were selected in-sample on this season.")
     print(f"\nEvaluation -> {args.output_dir}")
 

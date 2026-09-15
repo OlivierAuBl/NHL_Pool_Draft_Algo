@@ -496,3 +496,100 @@ def summarize_category_deltas(paired: pd.DataFrame) -> pd.DataFrame:
         .sort_values(["strategy", "category"])
         .reset_index(drop=True)
     )
+
+
+def roster_swap_diagnostics(
+    picks: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Explain candidate roster changes relative to V0 for every focal slot."""
+
+    required_columns = {
+        "projection_model", "strategy", "draft_slot", "round_no",
+        "overall_pick", "category", "entity_id", "name", "decision_value",
+        "actual_points",
+    }
+    missing = required_columns - set(picks.columns)
+    if missing:
+        raise ValueError(f"picks are missing columns: {sorted(missing)}")
+
+    v0_model = "V0"
+    candidate_model = "V1_WEIGHTED_GP_CANDIDATE"
+    models = set(picks["projection_model"])
+    if not {v0_model, candidate_model} <= models:
+        raise ValueError("picks must contain V0 and V1_WEIGHTED_GP_CANDIDATE")
+
+    summary_rows: list[dict[str, object]] = []
+    change_rows: list[dict[str, object]] = []
+    keys = ["strategy", "draft_slot", "category"]
+    for key, group in picks.groupby(keys, sort=True):
+        strategy, draft_slot, category = key
+        v0 = group.loc[group["projection_model"].eq(v0_model)].copy()
+        candidate = group.loc[
+            group["projection_model"].eq(candidate_model)
+        ].copy()
+        if v0.empty or candidate.empty:
+            raise ValueError(
+                "Every strategy, draft slot and category must contain both models"
+            )
+        if v0["entity_id"].duplicated().any() or candidate["entity_id"].duplicated().any():
+            raise ValueError("A roster cannot contain duplicate entity_id values")
+
+        v0_ids = set(v0["entity_id"])
+        candidate_ids = set(candidate["entity_id"])
+        removed = v0.loc[v0["entity_id"].isin(v0_ids - candidate_ids)]
+        added = candidate.loc[
+            candidate["entity_id"].isin(candidate_ids - v0_ids)
+        ]
+        removed_actual = float(removed["actual_points"].sum())
+        added_actual = float(added["actual_points"].sum())
+        summary_rows.append({
+            "strategy": strategy,
+            "draft_slot": draft_slot,
+            "category": category,
+            "assets_added": len(added),
+            "assets_removed": len(removed),
+            "added_actual_points": added_actual,
+            "removed_actual_points": removed_actual,
+            "actual_points_delta": added_actual - removed_actual,
+            "v0_first_pick_round": int(v0["round_no"].min()),
+            "candidate_first_pick_round": int(candidate["round_no"].min()),
+            "first_pick_round_delta": int(
+                candidate["round_no"].min() - v0["round_no"].min()
+            ),
+            "v0_first_overall_pick": int(v0["overall_pick"].min()),
+            "candidate_first_overall_pick": int(candidate["overall_pick"].min()),
+            "first_overall_pick_delta": int(
+                candidate["overall_pick"].min() - v0["overall_pick"].min()
+            ),
+        })
+
+        for change, rows, sign in (
+            ("ADDED_BY_CANDIDATE", added, 1.0),
+            ("REMOVED_FROM_V0", removed, -1.0),
+        ):
+            for row in rows.itertuples(index=False):
+                change_rows.append({
+                    "strategy": strategy,
+                    "draft_slot": draft_slot,
+                    "category": category,
+                    "change": change,
+                    "entity_id": row.entity_id,
+                    "name": row.name,
+                    "round_no": row.round_no,
+                    "overall_pick": row.overall_pick,
+                    "decision_value": row.decision_value,
+                    "actual_points": row.actual_points,
+                    "signed_actual_contribution": sign * float(row.actual_points),
+                })
+
+    summary = pd.DataFrame(summary_rows).sort_values(
+        ["strategy", "category", "draft_slot"]
+    ).reset_index(drop=True)
+    changes = pd.DataFrame(change_rows, columns=[
+        "strategy", "draft_slot", "category", "change", "entity_id", "name",
+        "round_no", "overall_pick", "decision_value", "actual_points",
+        "signed_actual_contribution",
+    ]).sort_values(
+        ["strategy", "draft_slot", "category", "change", "round_no"]
+    ).reset_index(drop=True)
+    return summary, changes

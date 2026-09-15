@@ -145,6 +145,9 @@ For each strategy and draft slot, the command compares an all-V0 reference
 draft with a mixed draft where only the focal GM uses the candidate. The other
 14 GMs continue to use V0. This isolates the competitive value of possessing
 the improved projections instead of giving the same information to every GM.
+`08_candidate_roster_swap_summary.csv` reports the realised contribution of
+the changed players and the movement of the first pick in each category.
+`09_candidate_roster_swaps.csv` lists every player added or removed.
 
 This reports V0 and V1 on identical historical coverage, then constructs a complete active universe using V0 only as a fallback for players without NHL history. The resulting `05_v1_active_universe_projections.csv` follows the existing projection-loader contract.
 

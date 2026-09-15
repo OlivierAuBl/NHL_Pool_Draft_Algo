@@ -192,3 +192,10 @@ candidate projections to one GM, rather than comparing two leagues where
 everyone has the same information. These are deterministic historical
 backtests, not independent trials, and the candidate's GP weights remain
 in-sample for the evaluated season.
+
+`08_candidate_roster_swap_summary.csv` explains each category delta through
+the actual points added and removed. It also reports the candidate-minus-V0
+movement in the first round and overall pick used for that category; a negative
+movement means the candidate drafted the category earlier. The player-level
+ledger is exported to `09_candidate_roster_swaps.csv`, where signed actual
+contributions reconcile to the summary delta.

@@ -9,6 +9,7 @@ from nhl_draft_lab.projection_backtest import (
     draft_category_totals,
     paired_category_deltas,
     paired_candidate_deltas,
+    roster_swap_diagnostics,
     run_focal_candidate_comparison,
     run_projection_draft_comparison,
     summarize_category_deltas,
@@ -126,3 +127,33 @@ def test_projection_draft_rejects_an_insufficient_category_pool():
             roster_config=RosterConfig({"D": 2}),
             strategy_names=("basic",),
         )
+
+
+def test_roster_swap_diagnostics_explain_players_timing_and_actual_delta():
+    master, candidate = projection_frames()
+    universe, _ = build_projection_draft_universe(master, candidate)
+    _, picks = run_focal_candidate_comparison(
+        universe,
+        gm_count=2,
+        roster_config=RosterConfig({"F": 1, "D": 1}),
+        strategy_names=("vorp",),
+    )
+
+    summary, changes = roster_swap_diagnostics(picks)
+    focal_forward = summary.loc[
+        summary["strategy"].eq("vorp")
+        & summary["draft_slot"].eq(1)
+        & summary["category"].eq("F")
+    ].iloc[0]
+    focal_changes = changes.loc[
+        changes["strategy"].eq("vorp")
+        & changes["draft_slot"].eq(1)
+        & changes["category"].eq("F")
+    ]
+
+    assert focal_forward["assets_added"] == 1
+    assert focal_forward["assets_removed"] == 1
+    assert focal_forward["actual_points_delta"] == pytest.approx(90)
+    assert focal_forward["first_pick_round_delta"] == 0
+    assert set(focal_changes["name"]) == {"Risky F", "Safe F"}
+    assert focal_changes["signed_actual_contribution"].sum() == pytest.approx(90)
