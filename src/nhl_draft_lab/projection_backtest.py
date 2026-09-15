@@ -5,8 +5,9 @@ from typing import Mapping
 
 import pandas as pd
 
-from nhl_draft_lab.draft.engine import run_draft
-from nhl_draft_lab.models import DraftAsset, RosterConfig
+from nhl_draft_lab.draft.engine import DraftResult, replacement_levels, run_draft
+from nhl_draft_lab.models import DraftAsset, DraftContext, RosterConfig
+from nhl_draft_lab.strategies.base import Strategy
 from nhl_draft_lab.strategies.factory import build_strategy
 
 
@@ -100,10 +101,72 @@ def _decision_assets(universe: pd.DataFrame, value_column: str) -> list[DraftAss
             category=str(row.category),
             value=float(getattr(row, value_column)),
             nhl_team=_text(getattr(row, "team_key", "")),
-            metadata={"actual_points": float(row.actual_points)},
+            metadata={
+                "actual_points": float(row.actual_points),
+                "v0_projected_points": float(row.v0_projected_points),
+                "candidate_projected_points": float(row.candidate_projected_points),
+            },
         )
         for row in universe.itertuples(index=False)
     ]
+
+
+class _ProjectionViewStrategy:
+    """Let one GM value shared draft assets with a different projection model."""
+
+    def __init__(
+        self,
+        strategy: Strategy,
+        *,
+        value_column: str,
+        gm_count: int,
+    ) -> None:
+        self.strategy = strategy
+        self.value_column = value_column
+        self.gm_count = gm_count
+        self.name = strategy.name
+        self._replacement_levels: dict[str, float] | None = None
+
+    def _view_asset(self, asset: DraftAsset) -> DraftAsset:
+        return DraftAsset(
+            entity_id=asset.entity_id,
+            name=asset.name,
+            category=asset.category,
+            value=float(asset.metadata[self.value_column]),
+            nhl_team=asset.nhl_team,
+            metadata=asset.metadata,
+        )
+
+    def choose(self, context: DraftContext) -> DraftAsset:
+        original_by_id = {
+            asset.entity_id: asset for asset in context.available_assets
+        }
+        initial = tuple(self._view_asset(asset) for asset in context.initial_assets)
+        if self._replacement_levels is None:
+            self._replacement_levels = replacement_levels(
+                list(initial), self.gm_count, context.roster_config
+            )
+        viewed = DraftContext(
+            gm_id=context.gm_id,
+            draft_slot=context.draft_slot,
+            overall_pick=context.overall_pick,
+            round_no=context.round_no,
+            picks_until_next=context.picks_until_next,
+            roster=tuple(self._view_asset(asset) for asset in context.roster),
+            roster_config=context.roster_config,
+            available_assets=tuple(
+                self._view_asset(asset) for asset in context.available_assets
+            ),
+            replacement_levels=self._replacement_levels,
+            rosters_by_gm={
+                gm_id: tuple(self._view_asset(asset) for asset in roster)
+                for gm_id, roster in context.rosters_by_gm.items()
+            },
+            future_order=context.future_order,
+            initial_assets=initial,
+        )
+        chosen = self.strategy.choose(viewed)
+        return original_by_id[chosen.entity_id]
 
 
 def _competition_rank(totals: Mapping[int, float], gm_id: int) -> int:
@@ -186,6 +249,121 @@ def run_projection_draft_comparison(
                     "decision_value": pick.asset.value,
                     "actual_points": pick.asset.metadata["actual_points"],
                 })
+
+    return pd.DataFrame(detail_rows), pd.DataFrame(pick_rows)
+
+
+def run_focal_candidate_comparison(
+    universe: pd.DataFrame,
+    *,
+    gm_count: int,
+    roster_config: RosterConfig,
+    strategy_names: tuple[str, ...] = ("vorp", "tier_vorp"),
+    strategy_kwargs: Mapping[str, object] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Test one candidate-informed GM at a time against V0-informed opponents."""
+
+    if gm_count < 2:
+        raise ValueError("gm_count must be at least 2")
+    if not strategy_names:
+        raise ValueError("strategy_names cannot be empty")
+    strategy_kwargs = dict(strategy_kwargs or {})
+
+    counts = universe["category"].value_counts().to_dict()
+    for category, slots in roster_config.counts.items():
+        required = gm_count * int(slots)
+        if counts.get(category, 0) < required:
+            raise ValueError(
+                f"Projection universe has only {counts.get(category, 0)} {category}; "
+                f"need {required}"
+            )
+
+    assets = _decision_assets(universe, "v0_projected_points")
+    detail_rows: list[dict[str, object]] = []
+    pick_rows: list[dict[str, object]] = []
+
+    def record_focal(
+        *,
+        result: DraftResult,
+        model: str,
+        opponent_model: str,
+        strategy_name: str,
+        focal_slot: int,
+        value_column: str,
+    ) -> None:
+        actual_totals = {
+            gm_id: float(sum(asset.metadata["actual_points"] for asset in roster))
+            for gm_id, roster in result.rosters.items()
+        }
+        focal_actual = actual_totals[focal_slot]
+        field = [
+            value for gm_id, value in actual_totals.items() if gm_id != focal_slot
+        ]
+        roster = result.rosters[focal_slot]
+        detail_rows.append({
+            "projection_model": model,
+            "opponent_projection_model": opponent_model,
+            "strategy": strategy_name,
+            "draft_slot": focal_slot,
+            "projected_roster_points": float(
+                sum(asset.metadata[value_column] for asset in roster)
+            ),
+            "actual_roster_points": focal_actual,
+            "actual_rank": _competition_rank(actual_totals, focal_slot),
+            "gap_to_winner": max(actual_totals.values()) - focal_actual,
+            "margin_vs_field_mean": focal_actual - fmean(field),
+        })
+        focal_picks = [pick for pick in result.picks if pick.gm_id == focal_slot]
+        for pick in focal_picks:
+            pick_rows.append({
+                "projection_model": model,
+                "opponent_projection_model": opponent_model,
+                "strategy": strategy_name,
+                "draft_slot": focal_slot,
+                "overall_pick": pick.overall_pick,
+                "round_no": pick.round_no,
+                "category": pick.asset.category,
+                "entity_id": pick.asset.entity_id,
+                "name": pick.asset.name,
+                "decision_value": pick.asset.metadata[value_column],
+                "actual_points": pick.asset.metadata["actual_points"],
+            })
+
+    for strategy_name in strategy_names:
+        baseline_strategies = {
+            gm_id: build_strategy(strategy_name, **strategy_kwargs)
+            for gm_id in range(1, gm_count + 1)
+        }
+        baseline = run_draft(assets, gm_count, roster_config, baseline_strategies)
+        for focal_slot in range(1, gm_count + 1):
+            record_focal(
+                result=baseline,
+                model="V0",
+                opponent_model="V0",
+                strategy_name=strategy_name,
+                focal_slot=focal_slot,
+                value_column="v0_projected_points",
+            )
+
+        for focal_slot in range(1, gm_count + 1):
+            mixed_strategies = {
+                gm_id: build_strategy(strategy_name, **strategy_kwargs)
+                for gm_id in range(1, gm_count + 1)
+            }
+            mixed_strategies[focal_slot] = _ProjectionViewStrategy(
+                mixed_strategies[focal_slot],
+                value_column="candidate_projected_points",
+                gm_count=gm_count,
+            )
+            mixed = run_draft(assets, gm_count, roster_config, mixed_strategies)
+            record_focal(
+                result=mixed,
+                model="V1_WEIGHTED_GP_CANDIDATE",
+                opponent_model="V0",
+                strategy_name=strategy_name,
+                focal_slot=focal_slot,
+                value_column="candidate_projected_points",
+            )
 
     return pd.DataFrame(detail_rows), pd.DataFrame(pick_rows)
 

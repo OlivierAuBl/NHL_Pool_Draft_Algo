@@ -166,10 +166,11 @@ an in-sample candidate until it is validated on additional seasons.
 
 ## Draft-outcome evaluation
 
-`evaluate-draft-v1` runs complete homogeneous drafts under V0 and under the
-weighted-GP candidate. The strategy, roster rules, GM count and frozen player
-universe stay constant; only the projection values used for draft decisions
-change. Selected rosters are then scored with actual season points.
+`evaluate-draft-v1` first runs an all-V0 reference draft. It then repeats the
+draft once per slot, with only that focal GM using the weighted-GP candidate
+while every opponent continues to use V0. The strategy, roster rules, GM count
+and frozen player universe stay constant. Selected rosters are scored with
+actual season points.
 
 ```bash
 nhl-draft evaluate-draft-v1 \
@@ -186,5 +187,8 @@ paired candidate-minus-V0 deltas by slot, category-level attribution and a
 projection-match audit. A positive actual-points delta favours the candidate;
 a negative rank or gap-to-winner delta favours the candidate. The category
 output makes it possible to verify whether a gain comes from F, D, G or T.
-These are deterministic historical backtests, not independent trials, and the
-candidate's GP weights remain in-sample for the evaluated season.
+Each paired delta therefore measures the competitive benefit of giving the
+candidate projections to one GM, rather than comparing two leagues where
+everyone has the same information. These are deterministic historical
+backtests, not independent trials, and the candidate's GP weights remain
+in-sample for the evaluated season.

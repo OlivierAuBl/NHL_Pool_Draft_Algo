@@ -42,7 +42,7 @@ from nhl_draft_lab.projection_backtest import (
     draft_category_totals,
     paired_category_deltas,
     paired_candidate_deltas,
-    run_projection_draft_comparison,
+    run_focal_candidate_comparison,
     summarize_category_deltas,
     summarize_paired_deltas,
     summarize_projection_drafts,
@@ -271,7 +271,7 @@ def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
         "tier_pressure_temperature": args.tier_pressure_temperature,
         "tier_pressure_cap": args.tier_pressure_cap,
     }
-    details, picks = run_projection_draft_comparison(
+    details, picks = run_focal_candidate_comparison(
         universe,
         gm_count=args.gms,
         roster_config=args.roster,
@@ -299,7 +299,7 @@ def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
     audit.to_csv(args.output_dir / "07_projection_match_audit.csv", index=False)
 
     counts = universe["category"].value_counts().to_dict()
-    print("Stage 2 — V0 vs weighted-GP candidate draft evaluation")
+    print("Stage 2 — one weighted-GP candidate GM vs V0 opponents")
     print(f"GM: {args.gms} | roster: {dict(args.roster.counts)}")
     print(f"Matched universe: {counts}")
     print("\nProjection draft summary (scored with actual points)")

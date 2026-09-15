@@ -9,6 +9,7 @@ from nhl_draft_lab.projection_backtest import (
     draft_category_totals,
     paired_category_deltas,
     paired_candidate_deltas,
+    run_focal_candidate_comparison,
     run_projection_draft_comparison,
     summarize_category_deltas,
     summarize_paired_deltas,
@@ -87,6 +88,31 @@ def test_projection_draft_universe_audits_missing_candidate_assets():
     assert len(universe) == 4
     missing = audit.loc[audit["match_status"].eq("MISSING_CANDIDATE")]
     assert missing["name"].tolist() == ["D2"]
+
+
+@pytest.mark.parametrize("strategy_name", ["vorp", "tier_vorp"])
+def test_focal_candidate_is_compared_against_v0_opponents_one_slot_at_a_time(
+    strategy_name: str,
+):
+    master, candidate = projection_frames()
+    universe, _ = build_projection_draft_universe(master, candidate)
+
+    details, picks = run_focal_candidate_comparison(
+        universe,
+        gm_count=2,
+        roster_config=RosterConfig({"F": 1, "D": 1}),
+        strategy_names=(strategy_name,),
+    )
+    paired = paired_candidate_deltas(details)
+
+    candidate_rows = details.loc[
+        details["projection_model"].eq("V1_WEIGHTED_GP_CANDIDATE")
+    ]
+    assert len(details) == 4
+    assert len(picks) == 8
+    assert set(candidate_rows["opponent_projection_model"]) == {"V0"}
+    assert paired.loc[paired["draft_slot"].eq(1), "actual_points_delta"].item() == 90
+    assert paired.loc[paired["draft_slot"].eq(2), "actual_points_delta"].item() == 0
 
 
 def test_projection_draft_rejects_an_insufficient_category_pool():
