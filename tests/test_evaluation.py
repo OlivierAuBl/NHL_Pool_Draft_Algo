@@ -11,6 +11,7 @@ from nhl_draft_lab.evaluation import (
     coverage_summary,
     draft_zone_disagreements,
     draft_zone_metrics,
+    gp_correction_grid_metrics,
     hybrid_active_universe_projections,
     projection_metrics,
     skater_component_errors,
@@ -262,6 +263,39 @@ def test_blend_weights_must_be_convex():
     comparison = build_v1_comparison(v0_master(), v1_projections())
     with pytest.raises(ValueError, match="between 0 and 1"):
         blend_grid_metrics(comparison, {"F": 2}, weights=(-0.1, 0.5))
+
+
+def test_gp_correction_grid_keeps_no_history_default_fixed():
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        build_v1_comparison(v0_master(), v1_projections()),
+        v0_reference_games=84,
+        rookie_gp=50,
+        rookie_defense_gp=60,
+    )
+    grid = gp_correction_grid_metrics(
+        comparison,
+        draft_counts={"F": 2},
+        weights=(0.0, 0.5, 1.0),
+    )
+    forwards = grid.loc[
+        grid["segment"].eq("DRAFTABLE") & grid["category"].eq("F")
+    ].set_index("history_gp_weight")
+
+    rookie_error = abs(30 - 40 / 84 * 50)
+    assert forwards.loc[0.0, "mae"] == pytest.approx((10 + rookie_error) / 2)
+    assert forwards.loc[1.0, "mae"] == pytest.approx(
+        (abs(100 - 90 / 84 * 80) + rookie_error) / 2
+    )
+    assert set(forwards["fixed_no_history_assets"]) == {1}
+    assert forwards.loc[0.0, "is_best_mae_in_sample"]
+
+
+def test_gp_correction_weights_must_be_convex():
+    comparison = add_v0_ppg_v1_gp_hybrid(
+        build_v1_comparison(v0_master(), v1_projections())
+    )
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        gp_correction_grid_metrics(comparison, {"F": 2}, weights=(0.0, 1.1))
 
 
 def test_disagreement_detail_stays_inside_draft_zone():

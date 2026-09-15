@@ -27,6 +27,7 @@ from nhl_draft_lab.evaluation import (
     coverage_summary,
     draft_zone_disagreements,
     draft_zone_metrics,
+    gp_correction_grid_metrics,
     hybrid_active_universe_projections,
     projection_metrics,
     skater_component_errors,
@@ -154,6 +155,12 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         weights=tuple(args.blend_weights),
         defense_focus_ranks=tuple(args.defense_focus_ranks),
     )
+    gp_correction_metrics = gp_correction_grid_metrics(
+        comparison,
+        draft_counts=draft_counts,
+        weights=tuple(args.gp_correction_weights),
+        defense_focus_ranks=tuple(args.defense_focus_ranks),
+    )
     disagreements = draft_zone_disagreements(
         comparison,
         draft_counts=draft_counts,
@@ -171,6 +178,9 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
     disagreements.to_csv(args.output_dir / "08_v1_draft_zone_disagreements.csv", index=False)
     hybrid_projections.to_csv(
         args.output_dir / "09_v0_ppg_v1_gp_projections.csv", index=False
+    )
+    gp_correction_metrics.to_csv(
+        args.output_dir / "10_v1_gp_correction_grid.csv", index=False
     )
 
     print("Stage 2 — V1.0 evaluation against frozen V0")
@@ -201,6 +211,16 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         ],
     ]
     print(best_blends.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nPartial historical-GP weights with lowest in-sample MAE")
+    best_gp_weights = gp_correction_metrics.loc[
+        gp_correction_metrics["is_best_mae_in_sample"],
+        [
+            "segment", "category", "rank_cutoff", "n", "history_gp_weight",
+            "history_adjusted_assets", "fixed_no_history_assets", "mae",
+            "mae_delta_vs_alpha_0", "spearman", "spearman_delta_vs_alpha_0",
+        ],
+    ]
+    print(best_gp_weights.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print(
         f"\nHybrid assumptions: V0 points / {args.v0_reference_games:g} games; "
         f"no-history F = {args.rookie_gp:g} GP; "
@@ -597,6 +617,13 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[step / 10 for step in range(11)],
         help="Exploratory V1 weights mixed with V0 (default: 0.0 through 1.0)",
+    )
+    evaluate_v1.add_argument(
+        "--gp-correction-weights",
+        type=float,
+        nargs="+",
+        default=[step / 10 for step in range(11)],
+        help="V1 GP weights applied to skaters with history (default: 0.0 through 1.0)",
     )
     evaluate_v1.add_argument(
         "--v0-reference-games",

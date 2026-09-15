@@ -139,3 +139,15 @@ hybrid only tests the skater PPG/GP decomposition. These assumptions are
 configurable with `--v0-reference-games`, `--rookie-gp` and
 `--rookie-defense-gp`. The draft-ready output is written to
 `09_v0_ppg_v1_gp_projections.csv`.
+
+`10_v1_gp_correction_grid.csv` then tests partial availability corrections for
+skaters with history:
+
+```text
+projection(alpha) = V0 + alpha × (full hybrid - V0)
+```
+
+The default grid runs from `alpha=0` to `alpha=1` by tenths. The 50-GP forward
+and 60-GP defense defaults remain fixed at every alpha, which isolates the
+incremental value of historical GP. The lowest-MAE weight is an in-sample
+diagnostic only and is not automatically used as a production coefficient.

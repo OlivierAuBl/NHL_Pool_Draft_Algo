@@ -428,6 +428,93 @@ def blend_grid_metrics(
     return metrics[[*first, *[column for column in metrics if column not in first]]]
 
 
+def gp_correction_grid_metrics(
+    comparison: pd.DataFrame,
+    draft_counts: dict[str, int],
+    weights: tuple[float, ...] = tuple(step / 10 for step in range(11)),
+    defense_focus_ranks: tuple[int, ...] = (6, 9),
+) -> pd.DataFrame:
+    """Evaluate partial V1 GP corrections while fixing no-history defaults.
+
+    A weight of zero retains V0 for skaters with history. A weight of one uses
+    the full V0-PPG/V1-GP hybrid. Skaters without history always retain their
+    position-specific default, so the grid isolates the value of historical
+    availability rather than re-testing the 50/60 GP assumptions.
+    """
+
+    if not weights:
+        raise ValueError("GP correction weights cannot be empty")
+    if any(weight < 0 or weight > 1 for weight in weights):
+        raise ValueError("GP correction weights must be between 0 and 1")
+    required = {"hybrid_projected_points", "hybrid_gp_source"}
+    missing = required - set(comparison.columns)
+    if missing:
+        raise ValueError(f"comparison is missing hybrid columns: {sorted(missing)}")
+
+    _, segments = _draft_segments(comparison, draft_counts, defense_focus_ranks)
+    rows: list[dict[str, object]] = []
+    for segment, category, rank_cutoff, part in segments:
+        if category in {"G", "T"}:
+            continue
+        history = part["hybrid_gp_source"].eq("V1_HISTORY")
+        no_history = part["hybrid_gp_source"].isin(
+            {"NO_HISTORY_F_DEFAULT", "NO_HISTORY_D_DEFAULT"}
+        )
+        for weight in sorted(set(float(value) for value in weights)):
+            adjusted = part.copy()
+            adjusted["_gp_corrected_points"] = pd.to_numeric(
+                adjusted["v0_projected_points"], errors="coerce"
+            ).astype(float)
+            adjusted.loc[history, "_gp_corrected_points"] = (
+                adjusted.loc[history, "v0_projected_points"]
+                + weight
+                * (
+                    adjusted.loc[history, "hybrid_projected_points"]
+                    - adjusted.loc[history, "v0_projected_points"]
+                )
+            )
+            adjusted.loc[no_history, "_gp_corrected_points"] = adjusted.loc[
+                no_history, "hybrid_projected_points"
+            ]
+            row = _metrics(
+                adjusted,
+                "V0_WITH_PARTIAL_GP_CORRECTION",
+                "_gp_corrected_points",
+                "ALL",
+            )
+            row.update({
+                "segment": segment,
+                "category": category,
+                "rank_cutoff": rank_cutoff,
+                "history_gp_weight": weight,
+                "history_adjusted_assets": int(history.sum()),
+                "fixed_no_history_assets": int(no_history.sum()),
+            })
+            rows.append(row)
+
+    metrics = pd.DataFrame(rows)
+    baseline = metrics.loc[
+        metrics["history_gp_weight"].eq(0),
+        ["segment", "category", "mae", "rmse", "spearman"],
+    ].rename(columns={
+        "mae": "alpha_0_mae",
+        "rmse": "alpha_0_rmse",
+        "spearman": "alpha_0_spearman",
+    })
+    metrics = metrics.merge(baseline, on=["segment", "category"], how="left")
+    metrics["mae_delta_vs_alpha_0"] = metrics["mae"] - metrics["alpha_0_mae"]
+    metrics["spearman_delta_vs_alpha_0"] = (
+        metrics["spearman"] - metrics["alpha_0_spearman"]
+    )
+    best_mae = metrics.groupby(["segment", "category"])["mae"].transform("min")
+    metrics["is_best_mae_in_sample"] = (metrics["mae"] - best_mae).abs() < 1e-12
+    first = [
+        "segment", "category", "rank_cutoff", "history_gp_weight",
+        "history_adjusted_assets", "fixed_no_history_assets", "model", "n",
+    ]
+    return metrics[[*first, *[column for column in metrics if column not in first]]]
+
+
 def draft_zone_disagreements(
     comparison: pd.DataFrame,
     draft_counts: dict[str, int],
