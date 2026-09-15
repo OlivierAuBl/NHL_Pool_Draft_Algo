@@ -37,6 +37,16 @@ from nhl_draft_lab.evaluation import (
 from nhl_draft_lab.forecasting import ForecastConfig, project_v1
 from nhl_draft_lab.models import RosterConfig
 from nhl_draft_lab.pressure import PressureConfig, build_tier_pressure_book
+from nhl_draft_lab.projection_backtest import (
+    build_projection_draft_universe,
+    draft_category_totals,
+    paired_category_deltas,
+    paired_candidate_deltas,
+    run_projection_draft_comparison,
+    summarize_category_deltas,
+    summarize_paired_deltas,
+    summarize_projection_drafts,
+)
 from nhl_draft_lab.strategies.factory import STRATEGY_NAMES, build_strategy
 from nhl_draft_lab.strategies.manual import ManualStrategy
 from nhl_draft_lab.tiering import TierConfig, build_tier_book
@@ -242,6 +252,63 @@ def cmd_evaluate_v1(args: argparse.Namespace) -> None:
         f"Weighted candidate: F historical-GP weight = {args.forward_gp_weight:.1%}; "
         f"D historical-GP weight = {args.defense_gp_weight:.1%}"
     )
+    print(f"\nEvaluation -> {args.output_dir}")
+
+
+def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
+    v0_master = pd.read_csv(args.v0_master)
+    candidate = pd.read_csv(args.candidate)
+    universe, audit = build_projection_draft_universe(v0_master, candidate)
+    strategy_kwargs = {
+        "tier_relative_width": args.tier_relative_width,
+        "tier_max_size": args.tier_max_size,
+        "tier_superstar_max_size": args.tier_superstar_max_size,
+        "tier_superstar_tiers": args.tier_superstar_tiers,
+        "tier_lookahead_focal_picks": args.tier_lookahead_focal_picks,
+        "tier_pressure_short_horizon": args.tier_pressure_short_horizon,
+        "tier_pressure_mid_horizon": args.tier_pressure_mid_horizon,
+        "tier_pressure_long_horizon": args.tier_pressure_long_horizon,
+        "tier_pressure_temperature": args.tier_pressure_temperature,
+        "tier_pressure_cap": args.tier_pressure_cap,
+    }
+    details, picks = run_projection_draft_comparison(
+        universe,
+        gm_count=args.gms,
+        roster_config=args.roster,
+        strategy_names=tuple(args.strategies),
+        strategy_kwargs=strategy_kwargs,
+    )
+    summary = summarize_projection_drafts(details)
+    paired = paired_candidate_deltas(details)
+    paired_summary = summarize_paired_deltas(paired)
+    category_totals = draft_category_totals(picks)
+    category_paired = paired_category_deltas(category_totals)
+    category_summary = summarize_category_deltas(category_paired)
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(args.output_dir / "01_projection_draft_summary.csv", index=False)
+    details.to_csv(args.output_dir / "02_projection_draft_by_slot.csv", index=False)
+    picks.to_csv(args.output_dir / "03_projection_draft_picks.csv", index=False)
+    paired.to_csv(args.output_dir / "04_candidate_vs_v0_by_slot.csv", index=False)
+    category_totals.to_csv(
+        args.output_dir / "05_projection_draft_categories_by_slot.csv", index=False
+    )
+    category_paired.to_csv(
+        args.output_dir / "06_candidate_vs_v0_by_category.csv", index=False
+    )
+    audit.to_csv(args.output_dir / "07_projection_match_audit.csv", index=False)
+
+    counts = universe["category"].value_counts().to_dict()
+    print("Stage 2 — V0 vs weighted-GP candidate draft evaluation")
+    print(f"GM: {args.gms} | roster: {dict(args.roster.counts)}")
+    print(f"Matched universe: {counts}")
+    print("\nProjection draft summary (scored with actual points)")
+    print(summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nPaired candidate deltas vs V0 by draft slot")
+    print(paired_summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nCandidate actual-points deltas vs V0 by roster category")
+    print(category_summary.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("\nWarning: candidate GP weights were selected in-sample on this season.")
     print(f"\nEvaluation -> {args.output_dir}")
 
 
@@ -672,6 +739,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="GP assumption for defensemen without V1 history (default: 60)",
     )
     evaluate_v1.set_defaults(func=cmd_evaluate_v1)
+
+    evaluate_draft_v1 = sub.add_parser(
+        "evaluate-draft-v1",
+        help="Compare V0 and the weighted-GP candidate through complete drafts",
+    )
+    evaluate_draft_v1.add_argument("--v0-master", type=Path, required=True)
+    evaluate_draft_v1.add_argument("--candidate", type=Path, required=True)
+    evaluate_draft_v1.add_argument(
+        "--strategies",
+        nargs="+",
+        choices=STRATEGY_NAMES,
+        default=["vorp", "tier_vorp"],
+    )
+    evaluate_draft_v1.add_argument("--gms", type=int, default=15)
+    evaluate_draft_v1.add_argument(
+        "--roster",
+        type=parse_roster,
+        default=RosterConfig({"F": 10, "D": 3, "G": 2, "T": 1}),
+    )
+    evaluate_draft_v1.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("output/v1/draft_evaluation"),
+    )
+    add_tier_args(evaluate_draft_v1)
+    evaluate_draft_v1.set_defaults(func=cmd_evaluate_draft_v1)
 
     draft = sub.add_parser("draft", help="Run one omniscient historical snake draft")
     _add_default_pool_args(draft)

@@ -163,3 +163,28 @@ teams remain at V0. The weights can be changed with `--forward-gp-weight` and
 `11_v1_weighted_gp_candidate.csv` follows the projection-loader contract and
 can therefore be supplied directly to the draft engine. It remains explicitly
 an in-sample candidate until it is validated on additional seasons.
+
+## Draft-outcome evaluation
+
+`evaluate-draft-v1` runs complete homogeneous drafts under V0 and under the
+weighted-GP candidate. The strategy, roster rules, GM count and frozen player
+universe stay constant; only the projection values used for draft decisions
+change. Selected rosters are then scored with actual season points.
+
+```bash
+nhl-draft evaluate-draft-v1 \
+  --v0-master output/v0_full_analysis/02_projection_master.csv \
+  --candidate output/v1/evaluation/11_v1_weighted_gp_candidate.csv \
+  --strategies vorp tier_vorp \
+  --gms 15 \
+  --roster F=10,D=3,G=2,T=1 \
+  --output-dir output/v1/draft_evaluation
+```
+
+The exports contain aggregate results, every draft-slot result, every pick,
+paired candidate-minus-V0 deltas by slot, category-level attribution and a
+projection-match audit. A positive actual-points delta favours the candidate;
+a negative rank or gap-to-winner delta favours the candidate. The category
+output makes it possible to verify whether a gain comes from F, D, G or T.
+These are deterministic historical backtests, not independent trials, and the
+candidate's GP weights remain in-sample for the evaluated season.

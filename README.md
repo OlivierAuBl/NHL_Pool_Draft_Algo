@@ -128,6 +128,24 @@ candidate (30% historical-GP correction for F, 60% for D, and V0 for G/T) in
 the existing draft projection format. Override the candidate weights with
 `--forward-gp-weight` and `--defense-gp-weight`.
 
+Compare complete V0 and candidate drafts, with every resulting roster scored
+using the season's actual points:
+
+```bash
+nhl-draft evaluate-draft-v1 `
+  --v0-master output/v0_full_analysis/02_projection_master.csv `
+  --candidate output/v1/evaluation/11_v1_weighted_gp_candidate.csv `
+  --strategies vorp tier_vorp `
+  --gms 15 `
+  --roster F=10,D=3,G=2,T=1 `
+  --output-dir output/v1/draft_evaluation
+```
+
+The command runs one homogeneous league for each projection model and draft
+strategy, then pairs V0 and candidate results by strategy and draft slot. This
+tests whether the projection improvement survives the draft's positional and
+snake-order decisions, rather than only lowering player-level MAE.
+
 This reports V0 and V1 on identical historical coverage, then constructs a complete active universe using V0 only as a fallback for players without NHL history. The resulting `05_v1_active_universe_projections.csv` follows the existing projection-loader contract.
 
 The evaluation also writes `06_v1_draft_zone_metrics.csv`. By default, it
