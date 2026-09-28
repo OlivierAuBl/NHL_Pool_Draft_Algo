@@ -160,6 +160,67 @@ The same command exports an exploratory V0/V1 blend grid and a player-level
 disagreement table. Blend-grid winners are explicitly labelled in-sample and
 must not be treated as calibrated production weights from a single season.
 
+## 5. Compare projection sources and consensus methods
+
+The consolidated conclusions for both historical seasons, including the
+team-quality and 15-opponent inversion analyses, are recorded in
+[`PROJECTION_SOURCE_AND_TEAM_STACKING_RESULTS.md`](PROJECTION_SOURCE_AND_TEAM_STACKING_RESULTS.md).
+
+Run the same raw-VOR strategy for one focal GM at every slot against 15 Pool
+Pro raw-VOR opponents. The command discovers the compatible source columns,
+builds mean/median and min-max-trimmed consensus projections, and scores every
+roster with realised points:
+
+```bash
+python -m nhl_draft_lab.launcher test-projection-sources
+```
+
+By default this uses the historical consolidated master at
+`output/v0_full_analysis/02_projection_master.csv` and writes the detailed
+results, coverage audit, comparisons and Markdown report to
+`output/projection_source_experiment_20252026`.
+
+For the 2024-2025 historical data available in the normalization database:
+
+```bash
+python scripts/build_20242025_projection_master.py
+python -m nhl_draft_lab.launcher test-projection-sources `
+  --master output/projection_source_master_20242025/projection_source_master_20242025.csv `
+  --season-label 2024-2025 `
+  --output-dir output/projection_source_experiment_20242025
+```
+
+Compare raw VOR with team stacking and diversification tiebreaks inside a
+three-point VOR window (single sources plus trimmed mean):
+
+```bash
+python -m nhl_draft_lab.launcher test-team-tiebreaks `
+  --master output/projection_source_master_20242025/projection_source_master_20242025.csv `
+  --season-label 2024-2025 `
+  --output-dir output/team_tiebreak_experiment_20242025
+```
+
+Invert the competitive environment so the focal GM remains on raw VOR while
+the other 15 GMs use the stacking tiebreak (and compare with the inverse):
+
+```bash
+python -m nhl_draft_lab.launcher test-team-field `
+  --master output/projection_source_master_20242025/projection_source_master_20242025.csv `
+  --season-label 2024-2025 `
+  --output-dir output/team_field_experiment_20242025
+```
+
+Relate the stacking result to realised team quality and player-level roster
+swaps:
+
+```bash
+python -m nhl_draft_lab.launcher analyze-team-stack `
+  --master output/projection_source_master_20242025/projection_source_master_20242025.csv `
+  --experiment-dir output/team_tiebreak_experiment_20242025 `
+  --season-label 2024-2025 `
+  --output-dir output/team_stack_quality_20242025
+```
+
 You can explicitly test other opponent models as well:
 
 ```bash

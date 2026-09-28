@@ -48,8 +48,15 @@ from nhl_draft_lab.projection_backtest import (
     summarize_paired_deltas,
     summarize_projection_drafts,
 )
+from nhl_draft_lab.projection_source_experiment import (
+    DEFAULT_TRIM_MIN_SOURCES,
+    run_projection_source_experiment,
+)
 from nhl_draft_lab.strategies.factory import STRATEGY_NAMES, build_strategy
 from nhl_draft_lab.strategies.manual import ManualStrategy
+from nhl_draft_lab.team_field_experiment import run_team_field_experiment
+from nhl_draft_lab.team_stack_analysis import analyze_team_stack_quality
+from nhl_draft_lab.team_tiebreak_experiment import run_team_tiebreak_experiment
 from nhl_draft_lab.tiering import TierConfig, build_tier_book
 
 
@@ -327,6 +334,83 @@ def cmd_evaluate_draft_v1(args: argparse.Namespace) -> None:
     ]].to_string(index=False, float_format=lambda value: f"{value:.3f}"))
     print("\nWarning: candidate GP weights were selected in-sample on this season.")
     print(f"\nEvaluation -> {args.output_dir}")
+
+
+def cmd_test_projection_sources(args: argparse.Namespace) -> None:
+    outputs = run_projection_source_experiment(
+        master_path=args.master,
+        output_dir=args.output_dir,
+        gm_count=args.gms,
+        roster_config=args.roster,
+        opponent_source=args.opponent_source,
+        trim_min_sources=args.trim_min_sources,
+        random_seed=args.random_seed,
+        season_label=args.season_label,
+    )
+    summary = outputs["summary"]
+    print("Projection-source experiment — focal VOR GM vs Pool Pro VOR field")
+    print(f"GM: {args.gms} | roster: {dict(args.roster.counts)}")
+    print(
+        summary.to_string(
+            index=False,
+            float_format=lambda value: f"{value:.3f}",
+        )
+    )
+    print(f"\nResults -> {args.output_dir}")
+
+
+def cmd_test_team_tiebreaks(args: argparse.Namespace) -> None:
+    outputs = run_team_tiebreak_experiment(
+        master_path=args.master,
+        output_dir=args.output_dir,
+        season_label=args.season_label,
+        gm_count=args.gms,
+        roster_config=args.roster,
+        tolerance=args.vor_tolerance,
+        trim_min_sources=args.trim_min_sources,
+    )
+    print("Team-aware VOR tiebreak experiment")
+    print(f"Season: {args.season_label} | tolerance: ±{args.vor_tolerance:g}")
+    print(
+        outputs["paired_summary"].to_string(
+            index=False,
+            float_format=lambda value: f"{value:.3f}",
+        )
+    )
+    print(f"\nResults -> {args.output_dir}")
+
+
+def cmd_test_team_field(args: argparse.Namespace) -> None:
+    outputs = run_team_field_experiment(
+        master_path=args.master,
+        output_dir=args.output_dir,
+        season_label=args.season_label,
+        gm_count=args.gms,
+        roster_config=args.roster,
+        tolerance=args.vor_tolerance,
+        trim_min_sources=args.trim_min_sources,
+    )
+    print("Team-concentrated field inversion experiment")
+    print(f"Season: {args.season_label} | tolerance: ±{args.vor_tolerance:g}")
+    print(
+        outputs["paired_summary"].to_string(
+            index=False,
+            float_format=lambda value: f"{value:.3f}",
+        )
+    )
+    print(f"\nResults -> {args.output_dir}")
+
+
+def cmd_analyze_team_stack(args: argparse.Namespace) -> None:
+    outputs = analyze_team_stack_quality(
+        master_path=args.master,
+        experiment_dir=args.experiment_dir,
+        output_dir=args.output_dir,
+        season_label=args.season_label,
+    )
+    print(f"Team-stack quality analysis — {args.season_label}")
+    print(outputs["band_summary"].to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+    print(f"\nResults -> {args.output_dir}")
 
 
 def cmd_draft(args: argparse.Namespace) -> None:
@@ -782,6 +866,86 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_tier_args(evaluate_draft_v1)
     evaluate_draft_v1.set_defaults(func=cmd_evaluate_draft_v1)
+
+    projection_sources = sub.add_parser(
+        "test-projection-sources",
+        help="Compare single projection sources and consensus methods in focal-GM drafts",
+    )
+    projection_sources.add_argument(
+        "--master",
+        type=Path,
+        default=Path("output/v0_full_analysis/02_projection_master.csv"),
+        help="Consolidated projection master containing source columns and actual_points",
+    )
+    projection_sources.add_argument("--gms", type=int, default=16)
+    projection_sources.add_argument(
+        "--roster",
+        type=parse_roster,
+        default=RosterConfig({"F": 10, "D": 3, "G": 2, "T": 1}),
+    )
+    projection_sources.add_argument("--opponent-source", default="PoolPro")
+    projection_sources.add_argument(
+        "--trim-min-sources",
+        type=int,
+        default=DEFAULT_TRIM_MIN_SOURCES,
+        help="Minimum comparable sources before removing min and max (default: 5)",
+    )
+    projection_sources.add_argument("--random-seed", type=int, default=20260927)
+    projection_sources.add_argument("--season-label", default="2025-2026")
+    projection_sources.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("output/projection_source_experiment_20252026"),
+    )
+    projection_sources.set_defaults(func=cmd_test_projection_sources)
+
+    team_tiebreaks = sub.add_parser(
+        "test-team-tiebreaks",
+        help="Compare raw VOR with team stacking/diversification inside a VOR window",
+    )
+    team_tiebreaks.add_argument("--master", type=Path, required=True)
+    team_tiebreaks.add_argument("--season-label", required=True)
+    team_tiebreaks.add_argument("--gms", type=int, default=16)
+    team_tiebreaks.add_argument(
+        "--roster",
+        type=parse_roster,
+        default=RosterConfig({"F": 10, "D": 3, "G": 2, "T": 1}),
+    )
+    team_tiebreaks.add_argument("--vor-tolerance", type=float, default=3.0)
+    team_tiebreaks.add_argument(
+        "--trim-min-sources", type=int, default=DEFAULT_TRIM_MIN_SOURCES
+    )
+    team_tiebreaks.add_argument("--output-dir", type=Path, required=True)
+    team_tiebreaks.set_defaults(func=cmd_test_team_tiebreaks)
+
+    team_field = sub.add_parser(
+        "test-team-field",
+        help="Invert which side of the draft uses the team-stacking VOR tiebreak",
+    )
+    team_field.add_argument("--master", type=Path, required=True)
+    team_field.add_argument("--season-label", required=True)
+    team_field.add_argument("--gms", type=int, default=16)
+    team_field.add_argument(
+        "--roster",
+        type=parse_roster,
+        default=RosterConfig({"F": 10, "D": 3, "G": 2, "T": 1}),
+    )
+    team_field.add_argument("--vor-tolerance", type=float, default=3.0)
+    team_field.add_argument(
+        "--trim-min-sources", type=int, default=DEFAULT_TRIM_MIN_SOURCES
+    )
+    team_field.add_argument("--output-dir", type=Path, required=True)
+    team_field.set_defaults(func=cmd_test_team_field)
+
+    stack_analysis = sub.add_parser(
+        "analyze-team-stack",
+        help="Relate stacking deltas to realised NHL-team and player quality",
+    )
+    stack_analysis.add_argument("--master", type=Path, required=True)
+    stack_analysis.add_argument("--experiment-dir", type=Path, required=True)
+    stack_analysis.add_argument("--season-label", required=True)
+    stack_analysis.add_argument("--output-dir", type=Path, required=True)
+    stack_analysis.set_defaults(func=cmd_analyze_team_stack)
 
     draft = sub.add_parser("draft", help="Run one omniscient historical snake draft")
     _add_default_pool_args(draft)
